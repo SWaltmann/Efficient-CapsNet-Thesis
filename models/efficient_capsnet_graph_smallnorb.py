@@ -81,7 +81,7 @@ def generator_graph(input_shape):
     input_shape: list
         network input shape
     """
-    inputs = tf.keras.Input(16*5)
+    inputs = tf.keras.Input((16*5,))
 
     x = tf.keras.layers.Dense(64)(inputs)
     x = tf.keras.layers.Reshape(target_shape=(8,8,1))(x)

@@ -55,7 +55,7 @@ def generator_graph(input_shape):
     input_shape: list
         network input shape
     """
-    inputs = tf.keras.Input(16*10)
+    inputs = tf.keras.Input((16*10,))
     
     x = tf.keras.layers.Dense(512, activation='relu', kernel_initializer='he_normal')(inputs)
     x = tf.keras.layers.Dense(1024, activation='relu', kernel_initializer='he_normal')(x)
