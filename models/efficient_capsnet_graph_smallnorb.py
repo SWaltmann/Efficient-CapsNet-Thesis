@@ -16,7 +16,6 @@
 import numpy as np
 import tensorflow as tf
 from utils.layers import PrimaryCaps, FCCaps, Length, Mask
-import tensorflow_addons as tfa
 
 
 def efficient_capsnet_graph(input_shape):
@@ -32,28 +31,32 @@ def efficient_capsnet_graph(input_shape):
     
     x = tf.keras.layers.Conv2D(32,7,2,activation=None, padding='valid', kernel_initializer='he_normal')(inputs)
     x = tf.keras.layers.LeakyReLU()(x)
-    x =   tfa.layers.InstanceNormalization(axis=3, 
+    x =   tf.keras.layers.GroupNormalization(groups=1,
+                                   axis=3, 
                                    center=True, 
                                    scale=True,
                                    beta_initializer="random_uniform",
                                    gamma_initializer="random_uniform")(x)
     x = tf.keras.layers.Conv2D(64,3, activation=None, padding='valid', kernel_initializer='he_normal')(x)
     x = tf.keras.layers.LeakyReLU()(x)
-    x =   tfa.layers.InstanceNormalization(axis=3, 
+    x =   tf.keras.layers.GroupNormalization(groups=1,
+                                   axis=3, 
                                    center=True, 
                                    scale=True,
                                    beta_initializer="random_uniform",
                                    gamma_initializer="random_uniform")(x)
     x = tf.keras.layers.Conv2D(64,3, activation=None, padding='valid', kernel_initializer='he_normal')(x) 
     x = tf.keras.layers.LeakyReLU()(x)
-    x =   tfa.layers.InstanceNormalization(axis=3, 
+    x =   tf.keras.layers.GroupNormalization(groups=1,
+                                   axis=3, 
                                    center=True, 
                                    scale=True,
                                    beta_initializer="random_uniform",
                                    gamma_initializer="random_uniform")(x)
     x = tf.keras.layers.Conv2D(128,3,2, activation=None, padding='valid', kernel_initializer='he_normal')(x)   
     x = tf.keras.layers.LeakyReLU()(x)
-    x =   tfa.layers.InstanceNormalization(axis=3, 
+    x =   tf.keras.layers.GroupNormalization(groups=1,
+                                   axis=3, 
                                    center=True, 
                                    scale=True,
                                    beta_initializer="random_uniform",
