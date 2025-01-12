@@ -50,7 +50,7 @@ def generator_graph(input_shape):
     input_shape: list
         network input shape
     """
-    inputs = tf.keras.Input(16*10)
+    inputs = tf.keras.Input((16*10,))
     
     x = tf.keras.layers.Dense(512, activation='relu')(inputs)
     x = tf.keras.layers.Dense(1024, activation='relu')(x)
@@ -75,7 +75,7 @@ def build_graph(input_shape, mode, n_routing, verbose):
     verbose: bool
     """
     inputs = tf.keras.Input(input_shape)
-    y_true = tf.keras.Input(shape=(10))
+    y_true = tf.keras.Input(shape=(10,))
     noise = tf.keras.layers.Input(shape=(10, 16))
     
     capsnet = capsnet_graph(input_shape, routing=n_routing)

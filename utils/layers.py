@@ -183,7 +183,7 @@ class FCCaps(tf.keras.layers.Layer):
         return v
 
     def compute_output_shape(self, input_shape):
-        return (None, self.C, self.L)
+        return (None, self.N, self.D)
 
     def get_config(self):
         config = {
