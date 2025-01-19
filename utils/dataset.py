@@ -78,7 +78,7 @@ class Dataset(object):
                     # import the datatset
             (ds_train, ds_test), ds_info = tfds.load(
                 'smallnorb',
-                split=['train', 'test'],
+                split=['train[:60%]', 'test[:15%]'],
                 shuffle_files=True,
                 as_supervised=False,
                 with_info=True)

@@ -31,8 +31,9 @@ PARALLEL_INPUT_CALLS = 16
 
 
 def pre_process(ds):
-    X = np.empty((SAMPLES, INPUT_SHAPE, INPUT_SHAPE, 2))
-    y = np.empty((SAMPLES,))
+    num_elements = tf.data.experimental.cardinality(ds).numpy()
+    X = np.empty((num_elements, INPUT_SHAPE, INPUT_SHAPE, 2))
+    y = np.empty((num_elements,))
         
     for index, d in tqdm(enumerate(ds.batch(1))):
         X[index, :, :, 0:1] = d['image']
