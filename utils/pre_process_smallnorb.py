@@ -29,7 +29,11 @@ LOWER_CONTRAST = 0.5
 UPPER_CONTRAST = 1.5
 PARALLEL_INPUT_CALLS = 16
 
-
+# This function separates labels from data into two numpy arrays, which can be 
+# helpful for pre-processing if the dataset fits entirely in memory. 
+# While I don't use it personally, as I rely on TensorFlow's data pipeline 
+# to manage the entire process (due to my small GPU), I am keeping this function 
+# since it could be useful for others who might not have the same constraints.
 def pre_process(ds):
     num_elements = tf.data.experimental.cardinality(ds).numpy()
     X = np.empty((num_elements, INPUT_SHAPE, INPUT_SHAPE, 2))
@@ -40,6 +44,40 @@ def pre_process(ds):
         X[index, :, :, 1:2] = d['image2']
         y[index] = d['label_category']
     return X, y
+
+
+def calculate_mean_and_std(dataset, feature, batch_size=1):
+    total_sum = 0.0
+    total_squared_sum = 0.0
+    total_count = 0
+
+    for batch in dataset.batch(batch_size):
+        # Flatten the batch to handle any shape (e.g., images)
+        batch = tf.reshape(batch[feature], [-1])
+
+        # tf.reduce sum uses the same dtype as the input (which is uint8).
+        # Since the sum gets large, we cast to float64 te prevent overflowing
+        batch = tf.cast(batch, dtype=tf.float64)
+        
+        total_sum += tf.reduce_sum(batch)
+        total_squared_sum += tf.reduce_sum(tf.square(batch))
+        
+        total_count += tf.size(batch, out_type=tf.float64)
+
+    # Cast everything to float64 to be sure
+    total_sum = tf.cast(total_sum, dtype=tf.float64)
+    total_squared_sum = tf.cast(total_squared_sum, tf.float64)
+
+    mean = total_sum / total_count
+
+    # Calculate the variance
+    variance = (total_squared_sum / total_count) - tf.square(mean)
+
+    # Calculate the standard deviation
+    std = tf.sqrt(variance)
+
+    # .numpy() just ensures we get a number, not tensor
+    return mean.numpy(), std.numpy()
 
 
 def standardize(x, y):
