@@ -7,7 +7,8 @@ import unittest
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import numpy as np
-
+import json
+from skimage.metrics import structural_similarity as ssim
 
 from utils import pre_process_smallnorb as prep_norb
 from utils import Dataset
@@ -99,6 +100,49 @@ class TestSmallNorbPreProcessing(unittest.TestCase):
             self.assertAlmostEqual(std, 1, places=2)
 
         ### Test rescale step ###
+
+        # TODO: make the path a env var or something... 
+        # or add a check for correct working dir
+        with open("config.json") as json_data_file:
+            config = json.load(json_data_file)
+
+        X_orig, y_orig = prep_norb.rescale(X_orig, y_orig, config)
+
+        def rescale_smallnorb_sample(sample):
+            return prep_norb.rescale_sample(sample, config)
+        
+        dataset_stream = dataset_stream.map(rescale_smallnorb_sample)
+
+        def extract_images(sample):
+            image1 = sample['image']
+            image2 = sample['image2']
+            return image1, image2   
+
+        extracted_dataset = dataset_stream.map(extract_images) 
+
+        images_list = []
+
+        for image1, image2 in extracted_dataset:
+            images_list.append((image1.numpy(), image2.numpy())) 
+
+        images_np = np.array(images_list)   
+
+        for original, streaming in zip(X_orig, images_np):
+            im1_orig = original[...,0].numpy().flatten()
+            im2_orig = original[...,1].numpy().flatten()
+            im1_stream = streaming[0].flatten()
+            im2_stream = streaming[1].flatten()
+            ssim1 = ssim(im1_orig, im1_stream, 
+                         data_range=1) 
+            ssim2 = ssim(im2_orig, im2_stream, 
+                         data_range=1) 
+            
+            # ssim is a measure of how much alike two images are. They will not
+            # be identical due to the different standardization.
+            self.assertTrue(ssim1>0.999)
+            self.assertTrue(ssim2>0.999)
+
+        
 
 
 

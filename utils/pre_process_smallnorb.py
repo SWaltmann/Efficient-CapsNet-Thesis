@@ -98,6 +98,12 @@ def standardize(x, y):
     x[...,1] = (x[...,1] - x[...,1].mean()) / x[...,1].std()
     return x, tf.one_hot(y, N_CLASSES)
 
+def rescale_sample(sample, config):
+    size = (config['scale_smallnorb'], config['scale_smallnorb'])
+    sample["image"] = tf.image.resize(sample["image"], size)
+    sample["image2"] = tf.image.resize(sample["image2"], size)
+    return sample
+
 def rescale(x, y, config):
     with tf.device("/cpu:0"):
         x = tf.image.resize(x , [config['scale_smallnorb'], config['scale_smallnorb']])
