@@ -80,6 +80,19 @@ def calculate_mean_and_std(dataset, feature, batch_size=1):
     return mean.numpy(), std.numpy()
 
 
+def standardize_sample(sample, image1_mean_std, image2_mean_std):
+    """Standardize one example
+    
+    mean and std are passed as arguments so they are only computed once"""
+    statistics = [image1_mean_std, image2_mean_std]
+    for image, stats in zip(["image", "image2"], statistics):
+        mean, std = stats
+        # dtype is uint8, which underflows when subtracting the mean
+        sample[image] = tf.cast(sample[image], tf.float16)
+        sample[image] = (sample[image] - mean) / std
+    return sample
+
+
 def standardize(x, y):
     x[...,0] = (x[...,0] - x[...,0].mean()) / x[...,0].std()
     x[...,1] = (x[...,1] - x[...,1].mean()) / x[...,1].std()
