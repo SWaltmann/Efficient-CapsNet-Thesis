@@ -73,6 +73,13 @@ class TestSmallNorbPreProcessing(unittest.TestCase):
         # This step is skipped in the streaming pipeline - so no testing
         X_orig, y_orig = prep_norb.pre_process(dataset_orig)
 
+        def one_hot_smallnorb(sample):
+            """One hot encode the labels"""
+            sample["lable_category"] = tf.one_hot(sample["lable_category"], 5)
+            return sample
+        
+        dataset_stream.map(one_hot_smallnorb)
+
         ### Test standardize step ###
 
         X_orig, y_orig = prep_norb.standardize(X_orig, y_orig)
@@ -101,7 +108,7 @@ class TestSmallNorbPreProcessing(unittest.TestCase):
 
         ### Test rescale step ###
 
-        # TODO: make the path a env var or something... 
+        # TODO: make the path an env variable or something... 
         # or add a check for correct working dir
         with open("config.json") as json_data_file:
             config = json.load(json_data_file)
@@ -142,7 +149,9 @@ class TestSmallNorbPreProcessing(unittest.TestCase):
             self.assertTrue(ssim1>0.999)
             self.assertTrue(ssim2>0.999)
 
-        
+
+
+
 
 
 
