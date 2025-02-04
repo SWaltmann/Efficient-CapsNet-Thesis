@@ -133,6 +133,44 @@ def random_contrast(x, y):
     return tf.image.random_contrast(x, lower=LOWER_CONTRAST, upper=UPPER_CONTRAST), y
 
 
+def generate_tf_data_stream(dataset_train, dataset_test, batch_size):
+    # This is the same function as the one below, just changed the way the
+    # data is passed (was: numpy arrays, is now: tf Dataset)
+    
+    # Make it the same shape as the original:
+    def restructure_dataset(dataset):
+        """Convert dataset dictionary to (X, y) tuple format"""
+
+        def combine_tensors(sample):
+            combined_image = tf.concat([sample["image"], sample["image2"]], axis=-1)  # Combine along channel axis
+            return combined_image, sample["label_category"]
+        
+        return dataset.map(combine_tensors, num_parallel_calls=tf.data.AUTOTUNE)
+
+    dataset_train = restructure_dataset(dataset_train)
+
+    dataset_train = dataset_train.map(random_patches,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    dataset_train = dataset_train.map(random_brightness,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    dataset_train = dataset_train.map(random_contrast,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    dataset_train = dataset_train.map(generator,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    dataset_train = dataset_train.batch(batch_size)
+    dataset_train = dataset_train.prefetch(-1)
+
+    dataset_test = restructure_dataset(dataset_test)
+    dataset_test = dataset_test.cache()
+    dataset_test = dataset_test.map(generator,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    dataset_test = dataset_test.batch(1)
+    dataset_test = dataset_test.prefetch(-1)
+
+
+    return dataset_train, dataset_test
+
+
 def generate_tf_data(X_train, y_train, X_test_patch, y_test, batch_size):
     dataset_train = tf.data.Dataset.from_tensor_slices((X_train, y_train))
     # dataset_train = dataset_train.shuffle(buffer_size=SAMPLES) not needed if imported with tfds
@@ -153,5 +191,5 @@ def generate_tf_data(X_train, y_train, X_test_patch, y_test, batch_size):
         num_parallel_calls=PARALLEL_INPUT_CALLS)
     dataset_test = dataset_test.batch(1)
     dataset_test = dataset_test.prefetch(-1)
-    
+
     return dataset_train, dataset_test
