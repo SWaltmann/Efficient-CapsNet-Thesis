@@ -75,7 +75,7 @@ class TestSmallNorbPreProcessing(unittest.TestCase):
 
         def one_hot_smallnorb(sample):
             """One hot encode the labels"""
-            sample["lable_category"] = tf.one_hot(sample["lable_category"], 5)
+            sample["label_category"] = tf.one_hot(sample["label_category"], 5)
             return sample
         
         dataset_stream.map(one_hot_smallnorb)
