@@ -149,8 +149,42 @@ class TestSmallNorbPreProcessing(unittest.TestCase):
             self.assertTrue(ssim1>0.999)
             self.assertTrue(ssim2>0.999)
 
+        # Test test patches (crops the center region of image)
+        X_orig_patch, y_orig = prep_norb.test_patches(X_orig, y_orig, config)
 
+        res = (config['scale_smallnorb'] - config['patch_smallnorb']) // 2
+        def create_smallnorb_testpatch(sample):
+            return prep_norb.test_patch_sample(sample, res)
 
+        
+        dataset_stream_patch = dataset_stream.map(create_smallnorb_testpatch)
+
+        # Reapeat the ssim thingy to see if the images are still similar after
+        # extracting the patches.
+
+        extracted_dataset = dataset_stream_patch.map(extract_images) 
+
+        images_list = []
+
+        for image1, image2 in extracted_dataset:
+            images_list.append((image1.numpy(), image2.numpy())) 
+
+        images_np = np.array(images_list)   
+
+        for original, streaming in zip(X_orig_patch, images_np):
+            im1_orig = original[...,0].numpy().flatten()
+            im2_orig = original[...,1].numpy().flatten()
+            im1_stream = streaming[0].flatten()
+            im2_stream = streaming[1].flatten()
+            ssim1 = ssim(im1_orig, im1_stream, 
+                         data_range=1) 
+            ssim2 = ssim(im2_orig, im2_stream, 
+                         data_range=1) 
+            
+            # ssim is a measure of how much alike two images are. They will not
+            # be identical due to the different standardization.
+            self.assertTrue(ssim1>0.999)
+            self.assertTrue(ssim2>0.999)
 
 
 

@@ -109,6 +109,12 @@ def rescale(x, y, config):
         x = tf.image.resize(x , [config['scale_smallnorb'], config['scale_smallnorb']])
     return x, y
 
+def test_patch_sample(sample, res):
+    sample["image"] = sample["image"][res:-res, res:-res, :]
+    sample["image2"] = sample["image2"][res:-res, res:-res, :]
+    return sample
+
+
 def test_patches(x, y, config):
     res = (config['scale_smallnorb'] - config['patch_smallnorb']) // 2
     return x[:,res:-res,res:-res,:], y
