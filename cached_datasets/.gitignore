@@ -1,0 +1,2 @@
+*  # Probably bad practice, but I want this dir in the repo but not its content
+!.gitignore

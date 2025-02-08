@@ -149,6 +149,17 @@ def generate_tf_data_stream(dataset_train, dataset_test, batch_size):
 
     dataset_train = restructure_dataset(dataset_train)
 
+    # # Store the standardized images on disk - all random transformation 
+    # # will be done on-the-fly to ensure they differ each epoch
+    dataset_train = dataset_train.cache("cached_datasets/cached_SMALLNORB_train")  
+    # Iterate through the dataset to ensure all elements are loaded and cached.
+    # Without this, the cache file won't be created because caching happens
+    # during the first pass through the dataset.
+    for _ in dataset_train.as_numpy_iterator():
+        pass
+
+    print("Deterministic part of pipeline should be cached now!")
+
     dataset_train = dataset_train.map(random_patches,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
     dataset_train = dataset_train.map(random_brightness,
@@ -159,6 +170,7 @@ def generate_tf_data_stream(dataset_train, dataset_test, batch_size):
         num_parallel_calls=PARALLEL_INPUT_CALLS)
     dataset_train = dataset_train.batch(batch_size)
     dataset_train = dataset_train.prefetch(-1)
+
 
     dataset_test = restructure_dataset(dataset_test)
     dataset_test = dataset_test.cache()
