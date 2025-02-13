@@ -149,8 +149,6 @@ def generate_tf_data_stream(dataset_train, dataset_test, batch_size):
     dataset_train = dataset_train.batch(batch_size)
     dataset_train = dataset_train.prefetch(-1)
 
-
-    dataset_test = dataset_test.cache()
     dataset_test = dataset_test.map(generator,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
     dataset_test = dataset_test.batch(1)
