@@ -98,7 +98,7 @@ class Dataset(object):
             # Input pipeline for streaming data setup
             (ds_train, ds_test), ds_info = tfds.load(
                 'smallnorb',
-                split=['train', 'test'],
+                split=['train', 'test[:1%]'],
                 shuffle_files=True,
                 as_supervised=False,
                 with_info=True)
