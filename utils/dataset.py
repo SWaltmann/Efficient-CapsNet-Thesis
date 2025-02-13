@@ -83,6 +83,7 @@ class Dataset(object):
                 shuffle_files=True,
                 as_supervised=False,
                 with_info=True)
+            # Deterministic (=no randomness) pre processing
             self.X_train, self.y_train = prep_norb.pre_process(ds_train)
             self.X_test, self.y_test = prep_norb.pre_process(ds_test)
 
@@ -98,7 +99,7 @@ class Dataset(object):
             # Input pipeline for streaming data setup
             (ds_train, ds_test), ds_info = tfds.load(
                 'smallnorb',
-                split=['train', 'test[:1%]'],
+                split=['train', 'test'],
                 shuffle_files=True,
                 as_supervised=False,
                 with_info=True)
@@ -155,8 +156,10 @@ class Dataset(object):
             # Iterate through the dataset to ensure all elements are loaded and cached.
             # Without this, the cache file won't be created because caching happens
             # during the first pass through the dataset.
+            count = 0
             for _ in ds_train.as_numpy_iterator():
-                pass
+                count += 1
+            self.train_size = count
 
             self.ds_train = ds_train
 
@@ -170,6 +173,7 @@ class Dataset(object):
             ds_test = ds_test.map(rescale_smallnorb_sample, 
                                   num_parallel_calls=tf.data.AUTOTUNE)
             
+            
 
             # Cropping patches for the test set only
             res = (self.config['scale_smallnorb'] - self.config['patch_smallnorb']) // 2
@@ -177,6 +181,11 @@ class Dataset(object):
             ds_test = ds_test.map(create_smallnorb_testpatch, 
                                   num_parallel_calls=tf.data.AUTOTUNE)
             ds_test = restructure_dataset(ds_test)
+
+            # Cache on disk so training has more memory available
+            ds_test = ds_test.cache("cached_datasets/cached_SMALLNORB_test")
+            for _ in ds_test.as_numpy_iterator():
+                pass
             self.ds_test = ds_test
             print("Pipe line for testing set is set up!")
             self.class_names = ds_info.features['label_category'].names
