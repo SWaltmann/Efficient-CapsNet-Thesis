@@ -137,7 +137,30 @@ class Dataset(object):
                                     num_parallel_calls=tf.data.AUTOTUNE)
             ds_train = ds_train.map(rescale_smallnorb_sample, 
                                     num_parallel_calls=tf.data.AUTOTUNE)
+            # Make it the same shape as the original:
+            def restructure_dataset(dataset):
+                """Convert dataset dictionary to (X, y) tuple format"""
+
+                def combine_tensors(sample):
+                    combined_image = tf.concat([sample["image"], sample["image2"]], axis=-1)  # Combine along channel axis
+                    return combined_image, sample["label_category"]
+                
+                return dataset.map(combine_tensors, num_parallel_calls=tf.data.AUTOTUNE)
+
+            ds_train = restructure_dataset(ds_train)
+
+            # # Store the standardized images on disk - all random transformation 
+            # # will be done on-the-fly to ensure they differ each epoch
+            ds_train = ds_train.cache("cached_datasets/cached_SMALLNORB_train")  
+            # Iterate through the dataset to ensure all elements are loaded and cached.
+            # Without this, the cache file won't be created because caching happens
+            # during the first pass through the dataset.
+            for _ in ds_train.as_numpy_iterator():
+                pass
+
             self.ds_train = ds_train
+
+            print("Deterministic part of pipeline should be cached now!")
             print("Pipe line for training set is set up!")
 
             ds_test = ds_test.map(one_hot_smallnorb, 
@@ -153,6 +176,7 @@ class Dataset(object):
         
             ds_test = ds_test.map(create_smallnorb_testpatch, 
                                   num_parallel_calls=tf.data.AUTOTUNE)
+            ds_test = restructure_dataset(ds_test)
             self.ds_test = ds_test
             print("Pipe line for testing set is set up!")
             self.class_names = ds_info.features['label_category'].names

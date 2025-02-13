@@ -137,28 +137,6 @@ def generate_tf_data_stream(dataset_train, dataset_test, batch_size):
     # This is the same function as the one below, just changed the way the
     # data is passed (was: numpy arrays, is now: tf Dataset)
     
-    # Make it the same shape as the original:
-    def restructure_dataset(dataset):
-        """Convert dataset dictionary to (X, y) tuple format"""
-
-        def combine_tensors(sample):
-            combined_image = tf.concat([sample["image"], sample["image2"]], axis=-1)  # Combine along channel axis
-            return combined_image, sample["label_category"]
-        
-        return dataset.map(combine_tensors, num_parallel_calls=tf.data.AUTOTUNE)
-
-    dataset_train = restructure_dataset(dataset_train)
-
-    # # Store the standardized images on disk - all random transformation 
-    # # will be done on-the-fly to ensure they differ each epoch
-    dataset_train = dataset_train.cache("cached_datasets/cached_SMALLNORB_train")  
-    # Iterate through the dataset to ensure all elements are loaded and cached.
-    # Without this, the cache file won't be created because caching happens
-    # during the first pass through the dataset.
-    for _ in dataset_train.as_numpy_iterator():
-        pass
-
-    print("Deterministic part of pipeline should be cached now!")
 
     dataset_train = dataset_train.map(random_patches,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
@@ -172,7 +150,6 @@ def generate_tf_data_stream(dataset_train, dataset_test, batch_size):
     dataset_train = dataset_train.prefetch(-1)
 
 
-    dataset_test = restructure_dataset(dataset_test)
     dataset_test = dataset_test.cache()
     dataset_test = dataset_test.map(generator,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
