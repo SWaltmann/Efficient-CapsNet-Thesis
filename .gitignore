@@ -2,3 +2,11 @@ utils/__pycache__/
 models/__pycache__/
 .ipynb_checkpoints/
 __pycache__/
+cached_datasets/*
+!cached_datasets/.gitignore
+bin/
+!bin/efficient_capsnet_MNIST.h5
+!bin/efficient_capsnet_MULTIMNIST.h5
+!bin/efficient_capsnet_SMALLNORB.h5
+!bin/original_capsnet_MNIST.h5
+logs/
