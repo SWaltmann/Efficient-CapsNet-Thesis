@@ -7,3 +7,4 @@ matplotlib
 pytest
 jupyter
 tensorflow-datasets
+scikit-image  # Only necessary for testing

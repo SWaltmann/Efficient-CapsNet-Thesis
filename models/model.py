@@ -160,7 +160,15 @@ class EfficientCapsNet(Model):
 
         if dataset == None:
             dataset = Dataset(self.model_name, self.config_path)
-        dataset_train, dataset_val = dataset.get_tf_data()    
+        
+        dataset_train_full, _ = dataset.get_tf_data()
+
+        val_split = 0.1  # validation split as a fraction
+        # Dataset is batched,find num of batches corresponding the val_split
+        validation_size = int(dataset.train_size * val_split // self.config["batch_size"])
+
+        dataset_train = dataset_train_full.skip(validation_size)
+        dataset_val = dataset_train_full.take(validation_size)
 
         if self.model_name == 'MULTIMNIST':
             self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
@@ -179,7 +187,7 @@ class EfficientCapsNet(Model):
 
         history = self.model.fit(dataset_train,
           epochs=self.config[f'epochs'], steps_per_epoch=steps,
-          validation_data=(dataset_val), batch_size=self.config['batch_size'], initial_epoch=initial_epoch,
+          validation_data=(dataset_val), initial_epoch=initial_epoch,
           callbacks=callbacks)
         
         return history
