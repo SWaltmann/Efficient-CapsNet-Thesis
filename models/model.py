@@ -19,7 +19,7 @@ from utils.layers import PrimaryCaps, FCCaps, Length
 from utils.tools import get_callbacks, marginLoss, multiAccuracy
 from utils.dataset import Dataset
 from utils import pre_process_multimnist
-from models import efficient_capsnet_graph_mnist, efficient_capsnet_graph_smallnorb, efficient_capsnet_graph_multimnist, original_capsnet_graph_mnist
+from models import efficient_capsnet_graph_mnist, efficient_capsnet_graph_smallnorb, efficient_capsnet_graph_multimnist, original_capsnet_graph_mnist, original_em_capsnet_graph_smallnorb
 import os
 import json
 from tqdm.notebook import tqdm
@@ -254,6 +254,66 @@ class CapsNet(Model):
         history = self.model.fit(dataset_train,
           epochs=self.config['epochs'],
           validation_data=(dataset_val), batch_size=self.config['batch_size'], initial_epoch=initial_epoch,
+          callbacks=callbacks)
+        
+        return history
+
+
+# For now this is just copied from the other model
+# will be extended as necessary
+class EMCapsNet(Model):
+    def __init__(self, model_name, mode='test', config_path='config.json', custom_path=None, verbose=True):
+        print("init...")
+        Model.__init__(self, model_name, mode, config_path, verbose)
+        if custom_path != None:
+            self.model_path = custom_path
+        else:
+            self.model_path = os.path.join(self.config['saved_model_dir'], f"EM_capsnet_{self.model_name}.h5")
+        self.model_path_new_train = os.path.join(self.config['saved_model_dir'], f"EM_capsnet{self.model_name}_new_train.weights.h5")
+        self.tb_path = os.path.join(self.config['tb_log_save_dir'], f"EM_capsnet_{self.model_name}")
+        self.load_graph()
+        print("...init done")
+
+    def load_graph(self):
+        print("loading graph...")
+        # Only works for SmallNORB (for now at least)
+        self.model = original_em_capsnet_graph_smallnorb.em_capsnet_graph(self.config['SMALLNORB_INPUT_SHAPE'])
+        print("...graph loaded")
+
+    def train(self, dataset=None, initial_epoch=0):
+        callbacks = get_callbacks(self.tb_path, self.model_path_new_train, self.config['lr_dec'], self.config['lr'])
+
+        if dataset == None:
+            dataset = Dataset(self.model_name, self.config_path)
+        
+        dataset_train_full, _ = dataset.get_tf_data()
+
+        val_split = 0.1  # validation split as a fraction
+        # Dataset is batched,find num of batches corresponding the val_split
+        validation_size = int(dataset.train_size * val_split // self.config["batch_size"])
+
+        dataset_train = dataset_train_full.skip(validation_size)
+        dataset_val = dataset_train_full.take(validation_size)
+
+        if self.model_name == 'MULTIMNIST':
+            self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
+              loss=[marginLoss, 'mse', 'mse'],
+              loss_weights=[1., self.config['lmd_gen']/2,self.config['lmd_gen']/2],
+              metrics={'Efficient_CapsNet': multiAccuracy})
+            steps = 10*int(dataset.y_train.shape[0] / self.config['batch_size'])
+        else:
+            self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
+              loss=marginLoss,  # Use just 1 loss, since we are outputting 1 tensor
+              loss_weights=[1., self.config['lmd_gen']],
+              metrics={'EM_CapsNet': 'accuracy'})
+            steps=None
+
+        print('-'*30 + f'{self.model_name} train' + '-'*30)
+
+
+        history = self.model.fit(dataset_train,
+          epochs=self.config[f'epochs'], steps_per_epoch=steps,
+          validation_data=(dataset_val), initial_epoch=initial_epoch,
           callbacks=callbacks)
         
         return history

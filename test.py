@@ -11,9 +11,15 @@ import json
 from skimage.metrics import structural_similarity as ssim
 
 from utils import pre_process_smallnorb as prep_norb
-from utils import Dataset
+from utils import Dataset, plotImages, plotWrongImages
+from models import EMCapsNet
 
 class TestSmallNorbPreProcessing(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        print(f"\n--- Starting tests in {cls.__name__} ---\n")
+
 
     def test_mean_and_std(self):
         """Test mean_and_std function against numpy.mean and numpy.std
@@ -187,10 +193,32 @@ class TestSmallNorbPreProcessing(unittest.TestCase):
             self.assertTrue(ssim2>0.999)
 
 
+class TestOriginalMatrixCapsules(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        print(f"\n--- Starting tests in {cls.__name__} ---\n")
+
+    def test_model(self):
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+        tf.config.experimental.set_memory_growth(gpus[0], True)
+
+        model_name = 'SMALLNORB' 
+        custom_path = None
+
+        dataset = Dataset(model_name, config_path='config.json')
+
+        model_test = EMCapsNet(model_name, mode='test', verbose=True, custom_path=custom_path)
+
+        model_test.model.summary()     
 
 
-        
+        # Training does not work for partial network
+        # history = model_test.train(dataset, initial_epoch=0)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestOriginalMatrixCapsules)
+    unittest.TextTestRunner(verbosity=2).run(suite)
+
