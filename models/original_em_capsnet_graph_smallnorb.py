@@ -15,13 +15,13 @@ def em_capsnet_graph(input_shape):
     y_true = tf.keras.layers.Input(shape=(5,))
 
     relu_conv1 = ReLUConv(A=32)(inputs)
-    # prim_caps1 = PrimaryCaps()(relu_conv1)
+    prim_caps1 = PrimaryCaps()(relu_conv1)
     # conv_caps1 = ConvCaps()(prim_caps1)
     # conv_caps2 = ConvCaps()(conv_caps1)
 
     # capsules = ClassCaps()(conv_caps2)  
 
-    return tf.keras.Model(inputs=[inputs, y_true],outputs=relu_conv1, name='EM_CapsNet')
+    return tf.keras.Model(inputs=[inputs, y_true],outputs=prim_caps1, name='EM_CapsNet')
 
 if __name__ == '__main__':
     # For testing I will just run it from this
