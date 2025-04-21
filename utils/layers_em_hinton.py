@@ -23,6 +23,7 @@ class ReLUConv(tf.keras.layers.Layer):
             activation='relu',
             kernel_regularizer=tf.keras.regularizers.l2(.05),
             kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=5e-2)
+            bias_initializer=tf.keras.initializers.Constant(0.1)
         )
         self.built = True
 
@@ -79,7 +80,7 @@ class PrimaryCaps(tf.keras.layers.Layer):
         # Input shape: (batch_size, H, W, channels)
         conv_output = self.conv(inputs)
         # cont_output.shape = (batch_size, H, W, channels), 
-        #   with channels = num_capsules*(1+num_atoms)
+        #   with channels size: num_capsules*(1+num_atoms)
 
         # Split the pre-activation from the pose. So now there are two tensors 
         # with channel sizes 1 and num_atoms, respectively
