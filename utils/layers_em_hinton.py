@@ -52,6 +52,7 @@ class PrimaryCaps(tf.keras.layers.Layer):
             kernel_size=self.kernel_size,
             strides=self.stride,
             padding='same',
+            kernel_regularizer=tf.keras.regularizers.l2(.0000002),
             use_bias=False
         )
         # Manually construct the kernel out of two tensors with different 
