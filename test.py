@@ -7,6 +7,7 @@ import unittest
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import numpy as np
+import os
 import json
 from skimage.metrics import structural_similarity as ssim
 
@@ -200,6 +201,7 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         print(f"\n--- Starting tests in {cls.__name__} ---\n")
 
     def test_model(self):
+        # os.environ["TF_XLA_FLAGS"] = "--tf_xla_auto_jit=0"
         gpus = tf.config.experimental.list_physical_devices('GPU')
         tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
         tf.config.experimental.set_memory_growth(gpus[0], True)
@@ -209,9 +211,32 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
 
         dataset = Dataset(model_name, config_path='config.json')
 
-        model_test = EMCapsNet(model_name, mode='test', verbose=True, custom_path=custom_path)
+        model_test = EMCapsNet(model_name, mode='test', verbose=False, custom_path=custom_path)
 
-        model_test.model.summary()     
+        model_test.model.summary() 
+
+        # train, test = dataset.get_tf_data()  # TODO: figure out if there is any advantage to having to call this manually
+        
+        # The Dataset is pretty unintuitive - having to manually batch it 
+        # seems... dumb
+
+        # Also, we cannot predict using the train set, because that one includes
+        # the y_true label, which this model does not use. Probably better to
+        # make a new repo
+
+        # We must run it like this, because the intermediate values (which are 
+        # curerntly the output values) are huge. This way, tf does not store 
+        # those values:)
+        for i, (x, _) in enumerate(dataset.ds_test.batch(1)):
+            _ = model_test.predict(x)
+            if i % 100 == 0:
+                break
+
+
+            
+
+        # model_test.predict(dataset.ds_test.batch(1))
+
 
 
         # Training does not work for partial network
