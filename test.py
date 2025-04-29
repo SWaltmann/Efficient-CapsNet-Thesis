@@ -14,6 +14,7 @@ from skimage.metrics import structural_similarity as ssim
 from utils import pre_process_smallnorb as prep_norb
 from utils import Dataset, plotImages, plotWrongImages
 from models import EMCapsNet
+from utils.layers_em_hinton import PrimaryCaps, ConvCaps, EMRouting
 
 class TestSmallNorbPreProcessing(unittest.TestCase):
 
@@ -229,21 +230,78 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         # those values:)
         for i, (x, _) in enumerate(dataset.ds_test.batch(1)):
             _ = model_test.predict(x)
-            if i % 100 == 0:
+            if (i+1) % 100 == 0:
                 break
+        
+    def test_primary_capsule_layer(self):
 
+        # Create fake input - all ones for image1, all twos for image2
+        # First dimension represents the batch size (=1 for this)
+        image1 = tf.ones((1, 48, 48, 1))
+        image2 = tf.ones((1, 48, 48, 1)) * 2
 
-            
+        test_input = tf.concat([image1, image2], axis=-1)
+        # We now have a 48x48 'image', with 2 channels.
 
-        # model_test.predict(dataset.ds_test.batch(1))
+        # Create a quick test model
+        x = tf.keras.Input(shape=(48, 48, 2))
+        out = PrimaryCaps(name="primary_caps")(x)
 
+        model = tf.keras.Model(inputs=x, outputs=out)
+        
+        # Overwrite the kernel, so that all this layer does is shuffle numbers
+        # I want to make sure that numbers end up in the right place after 
+        # passing through this layer
+        prim_caps = model.get_layer("primary_caps")
+        prim_caps.conv.kernel.assign(tf.ones((prim_caps.kernel_size,
+                                              prim_caps.kernel_size,
+                                              2,  # num of input channels
+                                              17*32)))  # (16+1) * num output capsules
+        
+        # This kernel should just add the channels together for the poses,
+        # So the poses matrices should be filled with 1+2 = 3s
+        # Moreover, we should have 32 of those capsules at each grid position
+        # We use SAME padding (which just extends the ones and twos of the input)
+        # So the shape (1, 48, 48) should be the same as the input
 
+        expected_poses = tf.ones((1, 48, 48, 32, 4, 4)) * 3
 
-        # Training does not work for partial network
-        # history = model_test.train(dataset, initial_epoch=0)
+        # For the activations, the same thing goes, but they undergo a sigmoid
+        # so they should all be sigmoid(3) = 0.952574126
+
+        sig = 0.952574126
+
+        expected_activations = tf.ones((1, 48, 48, 32, 1, 1)) * sig
+
+        # Run it
+        output = model(test_input)
+        print([t.shape for t in output])
+        poses, activations = output
+
+        self.assertTrue(np.all(tf.math.equal(expected_poses, poses)))
+        self.assertTrue(np.all(tf.math.equal(expected_activations, activations)))
+
+        # Now we should also check to make sure that input values at specific 
+        # locations influence the corresponding capsules. For this, we set
+        # a random 'pixel' to 0 (both channels). The output at that position should
+        # be all zeroes, ensuring that the reshaping all worked out correctly
+        test_input2 = test_input.numpy()
+        test_input2[0, 11, 11, :] = np.zeros((1, 1, 2))
+        test_input2 = tf.convert_to_tensor(test_input2)
+
+        poses2, activations2 = model(test_input2)
+
+        # The poses and activation of the capsule at that location should be 0
+        # print(output2.shape)
+        expected_poses2 = tf.zeros((32, 4, 4))
+        # Check the pixel next to it to see if that one is not also zeros
+        self.assertTrue(np.all(tf.math.equal(expected_poses2, poses2[0, 11, 11, :])))
+        self.assertFalse(np.all(tf.math.equal(expected_poses2, poses2[0, 10, 11, :])))
+
 
 
 if __name__ == '__main__':
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestOriginalMatrixCapsules)
+    suite = unittest.TestSuite()
+    suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 
