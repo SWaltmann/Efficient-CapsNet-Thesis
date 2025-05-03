@@ -294,14 +294,29 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         # The poses and activation of the capsule at that location should be 0
         # print(output2.shape)
         expected_poses2 = tf.zeros((32, 4, 4))
-        # Check the pixel next to it to see if that one is not also zeros
+        # Also check the pixel next to it to see if that one is not also zeros
         self.assertTrue(np.all(tf.math.equal(expected_poses2, poses2[0, 11, 11, :])))
         self.assertFalse(np.all(tf.math.equal(expected_poses2, poses2[0, 10, 11, :])))
 
+    def test_conv_capsule_layer(self):
+        # Create a quick test model
+        poses_in = tf.keras.Input(shape=(22, 22, 32, 4, 4))
+        act_in = tf.keras.Input(shape=(22, 22, 32, 1, 1))
+        out = ConvCaps(name="convcaps")((poses_in, act_in))
+        model = tf.keras.Model(inputs=[poses_in, act_in], outputs=out)
+        test_caps_in = tf.ones((1, 22, 22, 32, 4, 4)) * 5
+        test_act_in = tf.ones((1, 22, 22, 32, 1, 1)) * 0.9
+        print("Running model...")
+        test_input = test_caps_in, test_act_in
+        out = model([test_caps_in, test_act_in])
+        print(out)
+        print("...Ran model")
+        # print(out.shape)
 
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
-    suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
+    # suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
+    suite.addTest(TestOriginalMatrixCapsules('test_conv_capsule_layer'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 
