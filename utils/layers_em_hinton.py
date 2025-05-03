@@ -200,7 +200,7 @@ class ConvCaps(tf.keras.layers.Layer):
         # The kernel should matmul each pose matrix with a unique transformation matrix
         # Kernel should have the same shape as 1 patch, but with additional channels
         # for each output capsule (defined in build() method
-        print(_shape[-1])
+
         if activations:
             # We are working on the activations
             kernel = self.act_kernel
