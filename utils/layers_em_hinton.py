@@ -134,23 +134,44 @@ class ConvCaps(tf.keras.layers.Layer):
         shape = (self.kernel_size, self.kernel_size, self.in_capsules,
                  self.out_capsules, self.sqrt_atom, self.sqrt_atom)
         
-        self.kernel = self.add_weight(shape=(self.kernel_size,
-                                             self.kernel_size,
-                                             self.in_capsules,
-                                             self.out_capsules,
-                                             self.sqrt_atom,
-                                             self.sqrt_atom),
-                                      name = "kernel",)
+        self.pose_kernel = self.add_weight(shape=(self.kernel_size,
+                                                  self.kernel_size,
+                                                  self.in_capsules,
+                                                  self.out_capsules,
+                                                  self.sqrt_atom,
+                                                  self.sqrt_atom),
+                                           name = "pose_kernel",)
+        self.act_kernel = self.add_weight(shape=(self.kernel_size,
+                                                self.kernel_size,
+                                                 self.in_capsules,
+                                                 self.out_capsules,
+                                                 1,
+                                                 1),
+                                          name = "act_kernel",)
         self.built = True
 
     def call(self, inputs):
         poses, activations = inputs
 
-        # Reshape into a 4D tensor: (N, H , W, caps_in*in_atoms)
-        # This has to be done becausee extract_patches() only takes 4D tensors
-        _shape = tf.shape(poses)
+        poses_out = self.conv_caps(poses, activations=False)
+        act_out = self.conv_caps(activations, activations=True)
 
-        poses_reshaped = tf.reshape(poses, (_shape[0], _shape[1], _shape[2], 
+        return poses_out, act_out
+        
+    
+    def conv_caps(self, input, activations=True):
+        """The poses and activations undergo essentially the same operations
+        so to prevent duplicated code we just use call() as a wrapper to pass
+        them individually through this method which does the actual work.
+
+        activations aarg is used to specificy wether activations are passed
+        (True) or poses (False). Determines which kernel to use:)
+        """
+        # Reshape into a 4D tensor: (N, H , W, caps_in*in_atoms)
+        # This has to be done because extract_patches() only takes 4D tensors
+        _shape = tf.shape(input)
+
+        poses_reshaped = tf.reshape(input, (_shape[0], _shape[1], _shape[2], 
                                             _shape[3]*_shape[4]*_shape[5]))
         # Taking patches is similar to applying convolution, We cannot use 
         # Conv2D (for example) because it does not do matrix multiplication
@@ -169,7 +190,7 @@ class ConvCaps(tf.keras.layers.Layer):
         pose_patches = tf.reshape(pose_patches,
                                   (_shape[0], out_height, out_width,  # N, H, W
                                   self.kernel_size, self.kernel_size,
-                                  self.in_capsules, self.sqrt_atom, self.sqrt_atom))
+                                  _shape[-3], _shape[-2], _shape[-1]))
         
         # Hinton now transposes and reshapes the patches for optimal performance
         # TF2 fixes this behind the scenes, so we keep it in a shape that makes
@@ -178,19 +199,24 @@ class ConvCaps(tf.keras.layers.Layer):
         # Each patch must be mulitplied by the kernel
         # The kernel should matmul each pose matrix with a unique transformation matrix
         # Kernel should have the same shape as 1 patch, but with additional channels
-        # for each output capsule (defined in build() method)
+        # for each output capsule (defined in build() method
+        print(_shape[-1])
+        if activations:
+            # We are working on the activations
+            kernel = self.act_kernel
+        else:
+            # We are working on poses
+            kernel = self.pose_kernel
 
         # Looks terrible, but does the matrix multiplication between kernel and patches
         # Cannot repeat indices, so I use xy for kernel (instead of more intuitive kk)
         # same for pose matrix (mn instead of pp)
         #   b=batch, h=height, w=width, xy=kernel*kernel, i=in_capsules,  
         #   mn=pose_matrix (4*4)
-
-        matrices = tf.einsum('bhwxyimn,xyiomn->bhwxyomn', pose_patches, self.kernel)
+        matrices = tf.einsum('bhwxyimn,xyiomn->bhwxyomn', pose_patches, kernel)
         print("Done")
         
         return matrices
-        
 
 
 class ClassCaps(tf.keras.layers.Layer):
