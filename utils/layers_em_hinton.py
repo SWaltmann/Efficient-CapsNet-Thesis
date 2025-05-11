@@ -130,9 +130,6 @@ class ConvCaps(tf.keras.layers.Layer):
 
         self.in_capsules = self.pose_shape_in[3]
         self.sqrt_atom = self.pose_shape_in[-1]
-
-        shape = (self.kernel_size, self.kernel_size, self.in_capsules,
-                 self.out_capsules, self.sqrt_atom, self.sqrt_atom)
         
         self.pose_kernel = self.add_weight(shape=(self.kernel_size,
                                                   self.kernel_size,
@@ -141,22 +138,15 @@ class ConvCaps(tf.keras.layers.Layer):
                                                   self.sqrt_atom,
                                                   self.sqrt_atom),
                                            name = "pose_kernel",)
-        self.act_kernel = self.add_weight(shape=(self.kernel_size,
-                                                self.kernel_size,
-                                                 self.in_capsules,
-                                                 self.out_capsules,
-                                                 1,
-                                                 1),
-                                          name = "act_kernel",)
         self.built = True
 
     def call(self, inputs):
         poses, activations = inputs
 
-        poses_out = self.conv_caps(poses, activations=False)
+        votes_out = self.conv_caps(poses, activations=False)
         act_out = self.conv_caps(activations, activations=True)
 
-        return poses_out, act_out
+        return votes_out, act_out
         
     
     def conv_caps(self, input, activations=True):
@@ -164,7 +154,7 @@ class ConvCaps(tf.keras.layers.Layer):
         so to prevent duplicated code we just use call() as a wrapper to pass
         them individually through this method which does the actual work.
 
-        activations aarg is used to specificy wether activations are passed
+        activations arg is used to specificy wether activations are passed
         (True) or poses (False). Determines which kernel to use:)
         """
         # Reshape into a 4D tensor: (N, H , W, caps_in*in_atoms)
@@ -202,8 +192,9 @@ class ConvCaps(tf.keras.layers.Layer):
         # for each output capsule (defined in build() method
 
         if activations:
-            # We are working on the activations
-            kernel = self.act_kernel
+            # We are working on the activations - they are not multiplied
+            # by the kernel
+            return pose_patches
         else:
             # We are working on poses
             kernel = self.pose_kernel
@@ -215,6 +206,9 @@ class ConvCaps(tf.keras.layers.Layer):
         #   mn=pose_matrix (4*4)
         matrices = tf.einsum('bhwxyimn,xyiomn->bhwxyomn', pose_patches, kernel)
         print("Done")
+
+        # TODO: rename variables, maybe seperate the patches in a different 
+        # method and apply the final part only to the poses for clarity
         
         return matrices
 
@@ -225,12 +219,84 @@ class ClassCaps(tf.keras.layers.Layer):
 
 
 class EMRouting(tf.keras.layers.Layer):
-    def __init__(self, iterations=3, **kwargs):
+    def __init__(self, iterations=3, min_var=0.0005, final_beta=1.0, **kwargs):
         super(EMRouting, self).__init__(**kwargs)
         self.iterations = iterations
+        self.min_var = min_var
+        self.final_beta = final_beta
+
 
     def build(self, input_shape):
-        pass
+        self.pose_shape_in = input_shape[0]
+        self.act_shape_in = input_shape[1]
+
+        # Initialize biases (using Hinton's setting)
+        self.activation_bias = self.add_weight(
+            shape=(),  # TODO: fill in shape
+            initializer=tf.constant_initializer(0.5),
+            name='activation_bias'
+        )
+        self.sigma_bias = self.add_weight(
+            shape=(),  # TODO
+            initializer=tf.constant_initializer(0.5),
+            name='sigma_bias'
+        ) 
+
+        # Initialize empty tensors as input for 1st iter of the routing loop
+        self.out_activations = tf.zeros()
+        self.out_poses = tf.zeros
+        self.out_mass = tf.zeros()
+
+        # Called post in Hinton's implementation
+        self.R_ij_init = tf.nn.softmax(tf.zeros(self.act_shape_in))
+
 
     def call(self, inputs):
+        votes, activations = inputs
+
+        # Ill use math notation from the paper for the variables
+        R_ij = tf.nn.softmax(tf.zero(tf.shape(inputs)))
+
+        for i in range(self.iterations):
+            routing_iteration()  # TODO: add output and input to this
+
+    def routing_iteration(self, i, posterior, activation, center, masses):
+        """ The main loop of the EM routing algorithm
+
+        i is the current iteration
+        """
+        # Soft warm-up for beta. Note that final_beta is never reached, it 
+        # is more like a scaling factor
+        beta = self.final_beta * (1 - tf.pow(0.95, (i+1)))
+        
+        # M-step, E-step
         pass
+
+    def m_step(self, R_ij, a_i, V_ij, capsules_in):
+        # In the paper, j is capsule in Omega_{L}, that is capsules_in
+
+        # vote_conf in Hinton's implementation
+        R_ij = R_ij * a_i  
+
+        # V_ij are the votes, shaped:    [batch, height, width, kernel, kernel, 
+        #                                 capsules, sqrt_atom, sqrt_atom]
+        # R_ij is shaped like activatons:[batch, height, width, kernel, kernel,
+        #                                capsules, 1, 1]
+        # Each of the 16 pose values must be multuplied by the same R_ij
+        # Since we were smart about the shapes they broadcast nicely
+
+        # preactivate_unrolled in Hinton's implementation
+        mu = (tf.reduce_sum(R_ij * V_ij, axis=[3,4], keepdims=True) 
+              / tf.reduce_sum(R_ij, axis=[3,4], keepdims=True)
+              + 0.0000001)  # This prevents numerical instability
+        
+        # TODO: RECHECK THIS! Waarschijnlijk nog niet helemaal de goede axis
+        # Ook checken of die conv layer uberhaput wel iets met de activations
+        # hoort te doen! Niet helemaal duidelijk atm. 
+        
+
+    def e_step(self):
+        pass
+
+
+
