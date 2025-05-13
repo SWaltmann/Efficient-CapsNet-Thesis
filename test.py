@@ -311,12 +311,14 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         out = model([test_caps_in, test_act_in])
         print(out)
         print("...Ran model")
+        print([t.shape for t in out])
+
         # print(out.shape)
 
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
     # suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
-    suite.addTest(TestOriginalMatrixCapsules('test_conv_capsule_layer'))
+    suite.addTest(TestOriginalMatrixCapsules('test_model'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 

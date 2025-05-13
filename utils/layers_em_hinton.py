@@ -200,7 +200,7 @@ class ConvCaps(tf.keras.layers.Layer):
         # same for pose matrix (mn instead of pp)
         #   b=batch, h=height, w=width, xy=kernel*kernel, i=in_capsules, o=out_capsules  
         #   mn=pose_matrix (4*4)
-        matrices = tf.einsum('bhwxyimn,xyiomn->bhwxyiomn', pose_patches, self.pose_kernel)
+        matrices = tf.einsum('bhwxyimn,xyiomn->bhwxyiomn', patches, self.pose_kernel)
         
         return matrices
 
@@ -221,7 +221,7 @@ class EMRouting(tf.keras.layers.Layer):
         super(EMRouting, self).__init__(**kwargs)
         self.iterations = iterations
         self.min_var = min_var
-        self.final_beta = final_beta
+        self.final_lambda = final_beta
 
 
     def build(self, input_shape):
@@ -251,33 +251,35 @@ class EMRouting(tf.keras.layers.Layer):
         # Initialize biases (using Hinton's setting)
         # activation_bias in Hinton's implementation
         self.beta_a = self.add_weight(
-            shape=(1, 1, 1, 1, p_shape[4], 1, 1, 1, 1),  # Each higher-level capsule has its own activation cost
+            shape=(1, 1, 1, 1, p_shape[5], 1, 1, 1, 1),  # Each higher-level capsule has its own activation cost
             initializer=tf.constant_initializer(0.5),
             name='activation_bias'
         )
         # sigma_bias in Hinton's implementation
         self.beta_u = self.add_weight(
-            shape=(1, 1, 1, 1, p_shape[4], 1, 1, 1, 1),  # Each higher-level capsule has its own activation cost
+            shape=(1, 1, 1, 1, p_shape[5], 1, 1, 1, 1),  # Each higher-level capsule has its own activation cost
             initializer=tf.constant_initializer(0.5),
             name='sigma_bias'
         ) 
 
-        # Initialize empty tensors as input for 1st iter of the routing loop
-        self.out_activations = tf.zeros(self.act_shape_in)
-        self.out_poses = tf.zeros(self.pose_shape_in)
-        # post in Hinton's implementation
-        self.R_ij = tf.nn.softmax(tf.zeros(self.act_shape_in))
-
-
+        
     def call(self, inputs):
         votes, activations = inputs
 
+        # Initialize empty tensors as input for 1st iter of the routing loop
+        self.out_activations = tf.zeros(tf.shape(activations))
+        self.out_poses = tf.zeros(tf.shape(votes))
+        # post in Hinton's implementation
+        self.R_ij = tf.nn.softmax(tf.zeros(tf.shape(activations)))
+
+
+        # Perform routing
         for i in range(self.iterations - 1):
             self.m_step(activations, votes, i)
             self.e_step()
 
-        # Last step does not need e_step so we only do the m-step to save computation
-        m_step(activations, votes, self.iterations)
+        # Last routing iteration only requires the m-step
+        self.m_step(activations, votes, self.iterations)
 
         return self.out_poses, self.out_activations
 
@@ -337,7 +339,7 @@ class EMRouting(tf.keras.layers.Layer):
                 # e-7 prevents numerical instability (Gritzman, 2019)
         
         # variance in Hinton's implementation
-        sigma_jh_sq = (tf.reduce_sum(R_ij * tf.pow((V_ij - mu_jh), 2), axis=[3,4,5])
+        sigma_jh_sq = (tf.reduce_sum(R_ij * tf.pow((V_ij - mu_jh), 2), axis=[3,4,5], keepdims=True)
                        / sum_R_ij) + self.min_var 
 
         # This happens in the paper, but not in Hinton's code
@@ -348,12 +350,12 @@ class EMRouting(tf.keras.layers.Layer):
         cost_h = (self.beta_u + tf.math.log(sigma_jh)) * sum_R_ij
 
         # beta in Hinton's implementation
-        inverse_temp = final_lambda*(1-tf.pow(0.95, i+1))
+        inverse_temp = self.final_lambda*(1-tf.pow(0.95, i+1))
 
         # activation_update in Hinton's implementation (I THINK, shit's a maze imo)
         # Maybe logit is actually closer but yout guess is as good as mine
         a_j = tf.math.sigmoid(
-            inverse_temp*(self.beta_a - tf.reduce_sum(cost_h, axis=[-1,-2]))  # Sum over values in pose matrix
+            inverse_temp*(self.beta_a - tf.reduce_sum(cost_h, axis=[-1,-2], keepdims=True))  # Sum over values in pose matrix
               )
 
         # Assign everythin to the corresponding attributes 
