@@ -1,7 +1,7 @@
 
 import numpy as np
 import tensorflow as tf
-from utils.layers_em_hinton import ReLUConv, PrimaryCaps, ConvCaps, ClassCaps
+from utils.layers_em_hinton import ReLUConv, PrimaryCaps, ConvCaps, ClassCaps, EMRouting
 
 def em_capsnet_graph(input_shape):
     """ Architecture of EM CapsNet, as described in: 'Matrix Capsules with EM Routing '
@@ -16,12 +16,19 @@ def em_capsnet_graph(input_shape):
 
     relu_conv1 = ReLUConv(A=32)(inputs)
     prim_caps1 = PrimaryCaps()(relu_conv1)
-    # conv_caps1 = ConvCaps()(prim_caps1)
-    # conv_caps2 = ConvCaps()(conv_caps1)
+    conv_caps1 = ConvCaps()(prim_caps1)
+    routing1 = EMRouting()(conv_caps1)
+    conv_caps2 = ConvCaps()(routing1)
+    routing2 = EMRouting()(conv_caps2)
 
     # capsules = ClassCaps()(conv_caps2)  
 
-    return tf.keras.Model(inputs=[inputs, y_true],outputs=prim_caps1, name='EM_CapsNet')
+    # TODO: if there are two inputs, return this model (commented out)
+    # Makes sure we can use the same dataset as the other models, maybe better
+    # to just add an error message or something
+    # return tf.keras.Model(inputs=[inputs, y_true],outputs=prim_caps1, name='EM_CapsNet')
+    return tf.keras.Model(inputs=inputs,outputs=routing2, name='EM_CapsNet')
+    
 
 if __name__ == '__main__':
     # For testing I will just run it from this

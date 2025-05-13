@@ -251,13 +251,13 @@ class EMRouting(tf.keras.layers.Layer):
         # Initialize biases (using Hinton's setting)
         # activation_bias in Hinton's implementation
         self.beta_a = self.add_weight(
-            shape=(1, 1, 1, 1, p_shape[5], 1, 1, 1, 1),  # Each higher-level capsule has its own activation cost
+            shape=(1, 1, 1, 1, 1, 1, p_shape[6], 1, 1),  # Each higher-level capsule has its own activation cost
             initializer=tf.constant_initializer(0.5),
             name='activation_bias'
         )
         # sigma_bias in Hinton's implementation
         self.beta_u = self.add_weight(
-            shape=(1, 1, 1, 1, p_shape[5], 1, 1, 1, 1),  # Each higher-level capsule has its own activation cost
+            shape=(1, 1, 1, 1, 1, 1, p_shape[6],1, 1),  # Each higher-level capsule has its own activation cost
             initializer=tf.constant_initializer(0.5),
             name='sigma_bias'
         ) 
@@ -280,6 +280,13 @@ class EMRouting(tf.keras.layers.Layer):
 
         # Last routing iteration only requires the m-step
         self.m_step(activations, votes, self.iterations)
+
+        # Remove the singleton dimsionsions that are left over from the kernel 
+        # and in_caps so that the shape matches that of the original input to 
+        # the conv_caps layer before this
+        self.out_poses = tf.squeeze(self.out_poses, axis=[3,4,5])
+        self.out_activations = tf.squeeze(self.out_activations, axis=[3,4,5])
+    
 
         return self.out_poses, self.out_activations
 
@@ -348,7 +355,6 @@ class EMRouting(tf.keras.layers.Layer):
         # Completely lost how Hinton's code relates to their paper at this point
         # Good luck figuring that out    
         cost_h = (self.beta_u + tf.math.log(sigma_jh)) * sum_R_ij
-
         # beta in Hinton's implementation
         inverse_temp = self.final_lambda*(1-tf.pow(0.95, i+1))
 
