@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import math
 
 
 class ReLUConv(tf.keras.layers.Layer):
@@ -209,6 +210,21 @@ class ClassCaps(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
         super(ClassCaps, self).__init__(**kwargs)
 
+    def build(self, input_shape):
+        # input shape = (N, H, W, capsules_in, sqrt_atom, sqrt_atom)
+        #   Example: (N, H, W, 32, 4, 4) in case of 32 capsules with 4x4 matrix
+        self.pose_shape_in = input_shape[0]
+        self.act_shape_in = input_shape[1]
+
+        # TODO: implement this layer
+
+        self.built = True
+
+    def call(self, inputs):
+        poses, activations = inputs
+
+
+
 
 class EMRouting(tf.keras.layers.Layer):
     """ Please note that although this is implemented as a seperate layer, it
@@ -261,6 +277,7 @@ class EMRouting(tf.keras.layers.Layer):
             initializer=tf.constant_initializer(0.5),
             name='sigma_bias'
         ) 
+        self.built = True
 
         
     def call(self, inputs):
@@ -276,7 +293,7 @@ class EMRouting(tf.keras.layers.Layer):
         # Perform routing
         for i in range(self.iterations - 1):
             self.m_step(activations, votes, i)
-            self.e_step()
+            self.e_step(votes)
 
         # Last routing iteration only requires the m-step
         self.m_step(activations, votes, self.iterations)
@@ -368,7 +385,29 @@ class EMRouting(tf.keras.layers.Layer):
         # Could have done that immediately but wanted to follow paper's notation
         self.out_activations = a_j
         self.out_poses = mu_jh
-        self.R_ij = R_ij
+        self.sigma_jh_sq = sigma_jh_sq
+        # R_ij is updated and assigned in e_step
 
-    def e_step(self):
-        pass
+    def e_step(self, V_ij):
+        mu_jh = self.out_poses
+        a_j = self.out_activations
+        # This is very different from what happens in Hinton's code. Highly
+        # doubt it is equivalent but theirs is so hard to follow
+        exponent = -0.5*tf.reduce_sum(
+                tf.pow((V_ij - mu_jh), 2) / self.sigma_jh_sq, axis=[-1,-2], keepdims=True
+            )
+        
+        # Make sure that none of the values are too large before 
+        # exponentiating. This is a trick to prevent numerical instability. It 
+        # is not mentioned in the paper, but it is in Hinton's code
+        
+        # Basically we subtract the maximum value from all values in the
+        # exponent tensor per output capsule. Not 100% sure if this works
+        exponent = exponent - tf.reduce_max(exponent, axis=[3,4,6], keepdims=True)
+
+        p_j = (1
+             /tf.math.sqrt(tf.reduce_prod(2*math.pi*self.sigma_jh_sq, axis=[-1,-2], keepdims=True))
+            )*tf.math.exp(exponent)
+        
+
+        self.R_ij = a_j * p_j / tf.reduce_sum(a_j * p_j, axis=[3,4,6], keepdims=True)
