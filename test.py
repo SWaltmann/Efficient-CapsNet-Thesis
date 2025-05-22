@@ -213,26 +213,23 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
 
         dataset = Dataset(model_name, config_path='config.json')
 
-        model_test = EMCapsNet(model_name, mode='test', verbose=False, custom_path=custom_path)
+        model_test = EMCapsNet(model_name, mode='train', verbose=False, custom_path=custom_path)
 
         model_test.model.summary() 
 
-        # train, test = dataset.get_tf_data()  # TODO: figure out if there is any advantage to having to call this manually
-        
-        # The Dataset is pretty unintuitive - having to manually batch it 
-        # seems... dumb
+        ds_train, ds_test = dataset.get_tf_data()
 
-        # Also, we cannot predict using the train set, because that one includes
-        # the y_true label, which this model does not use. Probably better to
-        # make a new repo
 
         # We must run it like this, because the intermediate values (which are 
         # curerntly the output values) are huge. This way, tf does not store 
         # those values:)
-        for i, (x, _) in enumerate(dataset.ds_test.batch(1)):
-            _ = model_test.predict(x)
-            if (i+1) % 100 == 0:
-                break
+        # for i, (x, _) in enumerate(dataset.ds_test.batch(1)):
+        #     _ = model_test.predict(x)
+        #     if (i+1) % 100 == 0:
+        #         break
+
+        # dataset_train, dataset_val = dataset.get_tf_data() 
+        history = model_test.train(dataset=dataset, initial_epoch=0)
         
     def test_primary_capsule_layer(self):
 

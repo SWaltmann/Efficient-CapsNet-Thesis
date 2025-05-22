@@ -115,11 +115,11 @@ class PrimaryCaps(tf.keras.layers.Layer):
 
 
 class ConvCaps(tf.keras.layers.Layer):
-    def __init__(self, kernel_size=3, num_capsules=32, stride=1, **kwargs):
+    def __init__(self, kernel_size=3, C=32, stride=1, **kwargs):
         """Kernel is shaped (kernel_size, kernel_size)"""
         super(ConvCaps, self).__init__(**kwargs)
         self.kernel_size = kernel_size
-        self.out_capsules = num_capsules  # number of output capsules
+        self.out_capsules = C  # number of output capsules
         self.stride = stride
         self.conv = None
 
@@ -244,7 +244,21 @@ class ClassCaps(tf.keras.layers.Layer):
         # To make routing work, add a 1x1 kernel to it
         # Shape should be [batch, H, W, 1, 1, in, out, atom, atom]
         activations = self.add_kernel(activations) 
-        return self.add_kernel(votes), tf.expand_dims(activations, -3)  # add out_caps 
+        votes, activations = self.add_kernel(votes), tf.expand_dims(activations, -3)  # add out_caps 
+
+        # We treat these votes as if they are all coming from the center. Instead of
+        # a [H, W] grid, we act as if there is just 1 position with H*W votes in it.
+        # In that way, routing should still work:)
+
+        # Routing expects
+        # [batch, height, width, kernel, kernel, in, out, atom, atom]
+        # So we create a
+        vs = tf.shape(votes)
+        b, h, w, i, o, a= vs[0], vs[1], vs[2], vs[5], vs[6], vs[7]
+
+        votes = tf.reshape(votes, (b, 1, 1, 1, 1, h*w*i, o, a, a))
+        acts = tf.reshape(activations, (b, 1, 1, 1, 1, h*w*i, 1, 1, 1))
+        return votes, acts
 
     def add_kernel(self, tensor):
         # Add dimensions after batch, height, width
@@ -258,7 +272,6 @@ class ClassCaps(tf.keras.layers.Layer):
 
         # Build grid from position_grid (numpy)
         xv, yv = self.position_grid  # Each: [H, W]
-        print(xv,yv)
         grid = np.stack([xv, yv], axis=-1)  # [H, W, 2]
         grid = tf.convert_to_tensor(grid, dtype=poses.dtype)
 
@@ -268,8 +281,7 @@ class ClassCaps(tf.keras.layers.Layer):
         # Extract x and y
         x = grid[..., 0]  # [H, W]
         y = grid[..., 1]  # [H, W]
-        print("x and y are:")
-        print(x, y)
+
 
         # Build scatter indices
         hw = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing="ij"), axis=-1)  # [H, W, 2]
@@ -286,8 +298,6 @@ class ClassCaps(tf.keras.layers.Layer):
         x_val = tf.reshape(x, [-1])
         y_val = tf.reshape(y, [-1])
 
-        print("Flattened:")
-        print(x_val, y_val)
     
         all_indices = tf.concat([x_idx, y_idx], axis=0)
         all_values = tf.concat([x_val, y_val], axis=0)

@@ -137,20 +137,29 @@ def generate_tf_data_stream(dataset_train, dataset_test, batch_size):
     # This is the same function as the one below, just changed the way the
     # data is passed (was: numpy arrays, is now: tf Dataset)
     
-
+    print("Generate_tf_data_stream:")
+    print(dataset_train.element_spec)
     dataset_train = dataset_train.map(random_patches,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
+    print("Generate_tf_data_stream, after patches:")
+    print(dataset_train.element_spec)
     dataset_train = dataset_train.map(random_brightness,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
+    print("Generate_tf_data_stream, after brightness:")
+    print(dataset_train.element_spec)
     dataset_train = dataset_train.map(random_contrast,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
-    dataset_train = dataset_train.map(generator,
-        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    print("Generate_tf_data_stream, after contrast:")
+    print(dataset_train.element_spec)
+    # dataset_train = dataset_train.map(generator,
+    #     num_parallel_calls=PARALLEL_INPUT_CALLS)
+    print("Generate_tf_data_stream, after generator:")
+    print(dataset_train.element_spec)
     dataset_train = dataset_train.batch(batch_size)
     dataset_train = dataset_train.prefetch(-1)
 
-    dataset_test = dataset_test.map(generator,
-        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    # dataset_test = dataset_test.map(generator,
+    #     num_parallel_calls=PARALLEL_INPUT_CALLS)
     dataset_test = dataset_test.batch(1)
     dataset_test = dataset_test.prefetch(-1)
 

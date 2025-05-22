@@ -6,8 +6,8 @@
     "lr": 5e-4,
     "lmd_gen": 0.392,
     "lr_dec": 0.97,
-    "batch_size": 16,
-    "epochs":150,
+    "batch_size": 2,
+    "epochs":5,
     "saved_model_dir": "bin",
     "tb_log_save_dir": "logs",
     "mnist_path": "mnist.npz",
@@ -16,5 +16,6 @@
     "n_overlay_multimnist": 1000,
     "shift_multimnist": 6,
     "pad_multimnist": 4,
-    "small_GPU": true
+    "small_GPU": true,
+    "use_small_architecture": true
 }

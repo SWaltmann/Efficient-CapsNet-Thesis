@@ -277,7 +277,10 @@ class EMCapsNet(Model):
     def load_graph(self):
         print("loading graph...")
         # Only works for SmallNORB (for now at least)
-        self.model = original_em_capsnet_graph_smallnorb.em_capsnet_graph(self.config['SMALLNORB_INPUT_SHAPE'])
+        if self.config['use_small_architecture']:
+            self.model = original_em_capsnet_graph_smallnorb.small_em_capsnet_graph(self.config['SMALLNORB_INPUT_SHAPE'], self.mode)
+        else:
+            self.model = original_em_capsnet_graph_smallnorb.em_capsnet_graph(self.config['SMALLNORB_INPUT_SHAPE'], self.mode)
         print("...graph loaded")
 
     def train(self, dataset=None, initial_epoch=0):
@@ -303,9 +306,8 @@ class EMCapsNet(Model):
             steps = 10*int(dataset.y_train.shape[0] / self.config['batch_size'])
         else:
             self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
-              loss=marginLoss,  # Use just 1 loss, since we are outputting 1 tensor
-              loss_weights=[1., self.config['lmd_gen']],
-              metrics={'EM_CapsNet': 'accuracy'})
+              loss=[None, CustomLoss()],  # TODO: create SpreadLoss class
+              metrics=[None, 'accuracy'])
             steps=None
 
         print('-'*30 + f'{self.model_name} train' + '-'*30)
@@ -317,3 +319,14 @@ class EMCapsNet(Model):
           callbacks=callbacks)
         
         return history
+    
+
+class CustomLoss(tf.keras.Loss):
+    def call(self, y_true, y_pred):
+        # y_pred is [batch, 1, 1, 5, 1, 1]
+        y_pred_squeezed = tf.squeeze(y_pred, axis=[1, 2, 4, 5])
+        print(y_pred_squeezed)
+        print(y_true)
+        return tf.reduce_mean(tf.math.squared_difference(y_true, y_pred_squeezed))
+
+
