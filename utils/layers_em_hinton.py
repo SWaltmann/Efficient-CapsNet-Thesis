@@ -197,33 +197,112 @@ class ConvCaps(tf.keras.layers.Layer):
         # for each output capsule (defined in build() method
 
         # Looks terrible, but does the matrix multiplication between kernel and patches
-        # Cannot repeat indices, so I use xy for kernel (instead of more intuitive kk)
-        # same for pose matrix (mn instead of pp)
+        # Cannot repeat indices, so I use xy for kernel (instead of more intuitive k)
+        # same for pose matrix (mnp instead of p)
         #   b=batch, h=height, w=width, xy=kernel*kernel, i=in_capsules, o=out_capsules  
-        #   mn=pose_matrix (4*4)
-        matrices = tf.einsum('bhwxyimn,xyiomn->bhwxyiomn', patches, self.pose_kernel)
-        
+        #   mnp=pose_matrix (4*4)
+        matrices = tf.einsum('bhwxyimn,xyiopn->bhwxyiomp', patches, self.pose_kernel)
+        #TODO: I am unsure this does the correct multiplications could be summing things
         return matrices
 
 
 class ClassCaps(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
+    def __init__(self, position_grid, out_atoms=16, capsules_out=5, **kwargs):
         super(ClassCaps, self).__init__(**kwargs)
+        # Position grid has to be tracked globally for the full model
+        # so there is a seperate function to track that external to the layers
+        # That function is in the model definition
+        self.position_grid = position_grid
+        self.out_atoms = out_atoms
+        self.caps_out = capsules_out
 
-    def build(self, input_shape):
+    def build(self, input_shape):  
         # input shape = (N, H, W, capsules_in, sqrt_atom, sqrt_atom)
         #   Example: (N, H, W, 32, 4, 4) in case of 32 capsules with 4x4 matrix
         self.pose_shape_in = input_shape[0]
+        self.in_sqrt_atoms = self.pose_shape_in[-1]
         self.act_shape_in = input_shape[1]
+        self.caps_in = self.pose_shape_in[3]
 
-        # TODO: implement this layer
+
+        self.weight = self.add_weight(shape=(self.caps_in, self.caps_out, self.in_sqrt_atoms, self.in_sqrt_atoms),
+                                       initializer=tf.keras.initializers.TruncatedNormal(stddev=0.01),
+                                       name='weights')
 
         self.built = True
 
     def call(self, inputs):
         poses, activations = inputs
+        # First compute all the votes
+        votes = tf.einsum('bhwimn,ionp->bhwiomp', poses, self.weight)
+        # Then add the coordinates to all the votes
+        votes = self.coordinate_addition(votes)
+        
+        # That's it I guess? now Routing
+        # votes.shape = [batch, height, width, in_caps, out_caps, atom, atom]
+
+        # To make routing work, add a 1x1 kernel to it
+        # Shape should be [batch, H, W, 1, 1, in, out, atom, atom]
+        activations = self.add_kernel(activations) 
+        return self.add_kernel(votes), tf.expand_dims(activations, -3)  # add out_caps 
+
+    def add_kernel(self, tensor):
+        # Add dimensions after batch, height, width
+        return tf.expand_dims(tf.expand_dims(tensor, 3), 3)
 
 
+    def coordinate_addition(self, poses):
+        # poses: [batch, H, W, caps_in, sqrt_atom, sqrt_atom]
+        batch_size, H, W = tf.shape(poses)[0], tf.shape(poses)[1], tf.shape(poses)[2]
+        sqrt_atom = tf.shape(poses)[-1]
+
+        # Build grid from position_grid (numpy)
+        xv, yv = self.position_grid  # Each: [H, W]
+        print(xv,yv)
+        grid = np.stack([xv, yv], axis=-1)  # [H, W, 2]
+        grid = tf.convert_to_tensor(grid, dtype=poses.dtype)
+
+        # Create zero matrices: [H, W, sqrt_atom, sqrt_atom]
+        zeros = tf.zeros((H, W, sqrt_atom, sqrt_atom), dtype=poses.dtype)
+
+        # Extract x and y
+        x = grid[..., 0]  # [H, W]
+        y = grid[..., 1]  # [H, W]
+        print("x and y are:")
+        print(x, y)
+
+        # Build scatter indices
+        hw = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing="ij"), axis=-1)  # [H, W, 2]
+        hw_flat = tf.reshape(hw, [-1, 2])  # [H*W, 2]
+
+        # Make sure fill() gets a value and not a tensor that does not exist
+        sqrt_atom_val = tf.shape(poses)[-1]
+        fill_val = tf.cast(sqrt_atom_val - 1, tf.int32)
+
+        x_idx = tf.concat([hw_flat, tf.zeros((H*W, 1), tf.int32), tf.fill((H*W, 1), fill_val)], axis=1)
+        y_idx = tf.concat([hw_flat, tf.ones((H*W, 1), tf.int32), tf.fill((H*W, 1), fill_val)], axis=1)
+
+        # Flatten values
+        x_val = tf.reshape(x, [-1])
+        y_val = tf.reshape(y, [-1])
+
+        print("Flattened:")
+        print(x_val, y_val)
+    
+        all_indices = tf.concat([x_idx, y_idx], axis=0)
+        all_values = tf.concat([x_val, y_val], axis=0)
+
+        # Scatter into zeros: result is [H, W, sqrt_atom, sqrt_atom]
+        coord = tf.tensor_scatter_nd_update(zeros, all_indices, all_values)
+
+        # Reshape to broadcast: [1, H, W, 1, 1, sqrt_atom, sqrt_atom]
+        # To account for batch, in_caps, out_caps
+        coord = tf.reshape(coord, [1, H, W, 1, 1, sqrt_atom, sqrt_atom])
+
+        # Add to poses (broadcasted over batch and capsules)
+        return poses + coord
+
+        
 
 
 class EMRouting(tf.keras.layers.Layer):

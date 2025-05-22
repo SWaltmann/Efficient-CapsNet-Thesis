@@ -11,11 +11,12 @@ def em_capsnet_graph(input_shape):
     Each layer is named after what their output represents
     """
     # Create position grid
-    height, width = input_shape[1], input_shape[2]
-    x = np.linalg(-1, 1, height)
-    y = np.linalg(-1, 1, width)
-    # This order makes it so that we can do [x_coord, y_coord] later which I prefer
-    position_grid = np.meshgrid(y, x)
+    # input shape = [48, 48, 2]
+    height, width = input_shape[0], input_shape[1]
+    x = np.linspace(-1, 1, height)
+    y = np.linspace(-1, 1, width)
+
+    position_grid = np.meshgrid(x, y)
 
 
     inputs = tf.keras.Input(input_shape)
@@ -36,15 +37,18 @@ def em_capsnet_graph(input_shape):
   
     conv_caps2 = ConvCaps()(routing1)
     position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
+    print(f"final pos grid = {position_grid}")
     routing2 = EMRouting()(conv_caps2)
 
     class_caps = ClassCaps(position_grid)(routing2)
+
+    output = EMRouting()(class_caps)
 
     # TODO: if there are two inputs, return this model (commented out)
     # Makes sure we can use the same dataset as the other models, maybe better
     # to just add an error message or something
     # return tf.keras.Model(inputs=[inputs, y_true],outputs=prim_caps1, name='EM_CapsNet')
-    return tf.keras.Model(inputs=inputs,outputs=class_caps, name='EM_CapsNet')
+    return tf.keras.Model(inputs=inputs,outputs=output, name='EM_CapsNet')
 
 def position_grid(grid, kernel_size, stride, padding):
     # Grid should be (1, H, W, 2) - where the 
@@ -94,7 +98,7 @@ def position_grid_conv(grid, kernel_size, stride, padding):
     else:
         Exception("You passed an invalid padding value. Use 'SAME' or 'VALID'")
    
-    # TODO: maight be nice to track the size of the receptive field for later
+    # TODO: might be nice to track the size of the receptive field for later
     return (xv, yv)
 
 if __name__ == '__main__':
@@ -102,7 +106,7 @@ if __name__ == '__main__':
     y = np.arange(-8, 8)
     grid = np.meshgrid(y, x)
 
-    grid = position_grid_improved(grid, 5, 1, 'SAME')
+    grid = position_grid_conv(grid, 5, 1, 'SAME')
 
     print(grid)
 

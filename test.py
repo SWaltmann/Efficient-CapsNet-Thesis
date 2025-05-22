@@ -15,6 +15,7 @@ from utils import pre_process_smallnorb as prep_norb
 from utils import Dataset, plotImages, plotWrongImages
 from models import EMCapsNet
 from utils.layers_em_hinton import PrimaryCaps, ConvCaps, EMRouting
+from models import original_em_capsnet_graph_smallnorb
 
 class TestSmallNorbPreProcessing(unittest.TestCase):
 
@@ -314,6 +315,24 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         print([t.shape for t in out])
 
         # print(out.shape)
+
+    def test_gridthing(self):
+         # For testing I will just run it from this
+        height = 32
+        width = 32
+        # By adding 1 it also works for uneven numbers
+        y_coords = tf.range(-height//2, (height+1)//2)
+        x_coords = tf.range(-width//2, (width+1)//2)
+        y, x = tf.meshgrid(x_coords, y_coords, indexing='ij')
+        grid = tf.stack([x, y], axis=-1)  # shape: (H, W, 2)
+        grid = tf.expand_dims(grid, axis=0)
+        grid = tf.cast(grid, tf.float32)
+    
+
+        print(type(grid))
+        print(grid)
+        new_grid = original_em_capsnet_graph_smallnorb.position_grid(grid, 3, 1, 'VALID')
+        print(new_grid)
 
 
 if __name__ == '__main__':
