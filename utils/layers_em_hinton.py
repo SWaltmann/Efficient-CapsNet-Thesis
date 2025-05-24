@@ -500,3 +500,18 @@ class EMRouting(tf.keras.layers.Layer):
         
 
         self.R_ij = a_j * p_j / tf.reduce_sum(a_j * p_j, axis=[3,4,6], keepdims=True)
+
+
+class DebugLayer(tf.keras.layers.Layer):
+    """Layer to check intermediate values for bugs
+    
+    Tensorflow function can only be applied within a layer. In order to check 
+    intermediate values for NaN or other bugs we have to pass them through a layer.
+    """
+    def __init__(self, msg="Check failed", **kwargs):
+        super().__init__(**kwargs)
+        self.msg = msg
+
+    def call(self, inputs):
+        tf.debugging.check_numerics(inputs, self.msg)
+        return inputs
