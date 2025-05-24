@@ -3,7 +3,7 @@ import numpy as np
 if __name__ != '__main__':
     # Didnt need these for some small tests (okay really ugly I know will remove this some time)
     import tensorflow as tf
-    from utils.layers_em_hinton import ReLUConv, PrimaryCaps, ConvCaps, ClassCaps, EMRouting
+    from utils.layers_em_hinton import ReLUConv, PrimaryCaps, ConvCaps, ClassCaps, EMRouting, DebugLayer
 
 def em_capsnet_graph(input_shape, mode):
     """ Architecture of EM CapsNet, as described in: 'Matrix Capsules with EM Routing '
@@ -31,8 +31,8 @@ def em_capsnet_graph(input_shape, mode):
     prim_caps1 = PrimaryCaps()(relu_conv1)
     position_grid = position_grid_conv(position_grid, 1, 1, 'SAME')
 
-    conv_caps1 = ConvCaps()(prim_caps1)
-    position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
+    conv_caps1 = ConvCaps(stride=2)(prim_caps1)
+    position_grid = position_grid_conv(position_grid, 3, 2, 'VALID')
     routing1 = EMRouting()(conv_caps1)    
   
     conv_caps2 = ConvCaps()(routing1)
@@ -69,22 +69,31 @@ def small_em_capsnet_graph(input_shape, mode):
     y_true = tf.keras.layers.Input(shape=(5,))
 
     relu_conv1 = ReLUConv(A=64)(inputs)
+    relu_conv1 = DebugLayer()(relu_conv1)
     position_grid = position_grid_conv(position_grid, 5, 2, 'VALID') 
 
     prim_caps1 = PrimaryCaps(B=8)(relu_conv1)
+    prim_caps1 = DebugLayer()(prim_caps1)
     position_grid = position_grid_conv(position_grid, 1, 1, 'SAME')
 
-    conv_caps1 = ConvCaps(C=16)(prim_caps1)
-    position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
-    routing1 = EMRouting()(conv_caps1)    
+    conv_caps1 = ConvCaps(C=16, stride=2)(prim_caps1)
+    conv_caps1 = DebugLayer()(conv_caps1)
+    position_grid = position_grid_conv(position_grid, 3, 2, 'VALID')
+    routing1 = EMRouting()(conv_caps1) 
+    routing1 = DebugLayer()(routing1) 
   
     conv_caps2 = ConvCaps(C=16)(routing1)
+    conv_caps2 = DebugLayer()(conv_caps2)
     position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
-    routing2 = EMRouting()(conv_caps2)
+    routing2 = EMRouting()(conv_caps2) 
+    routing2 = DebugLayer()(routing2) 
+
 
     class_caps = ClassCaps(position_grid)(routing2)
+    class_caps = DebugLayer()(class_caps)
 
     outputs = EMRouting()(class_caps)
+    outputs = EMRouting()(outputs)
 
     poses, acts = outputs
 
@@ -93,7 +102,7 @@ def small_em_capsnet_graph(input_shape, mode):
     # to just add an error message or something
     # return tf.keras.Model(inputs=[inputs, y_true],outputs=prim_caps1, name='EM_CapsNet')
 
-    return tf.keras.Model(inputs=inputs,outputs=outputs, name='small_EM_CapsNet')
+    return tf.keras.Model(inputs=inputs,outputs=[poses,acts], name='small_EM_CapsNet')
    
 def position_grid(grid, kernel_size, stride, padding):
     # Grid should be (1, H, W, 2) - where the 
