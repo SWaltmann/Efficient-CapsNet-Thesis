@@ -105,8 +105,6 @@ class Dataset(object):
                 with_info=True)
             print("Loaded Dataset!")
 
-            print("element_spec right when we download the dataset")
-            print(ds_train.element_spec)
 
             # Define functions that can be used with .map()
 
@@ -137,14 +135,10 @@ class Dataset(object):
             
             ds_train = ds_train.map(one_hot_smallnorb, 
                                     num_parallel_calls=tf.data.AUTOTUNE)
-            print("element_spec after one hot")
-            print(ds_train.element_spec)
             ds_train = ds_train.map(standardize_smallnorb_sample, 
                                     num_parallel_calls=tf.data.AUTOTUNE)
             ds_train = ds_train.map(rescale_smallnorb_sample, 
                                     num_parallel_calls=tf.data.AUTOTUNE)
-            print("element_spec after rescaling")
-            print(ds_train.element_spec)
             # Make it the same shape as the original:
             def restructure_dataset(dataset):
                 """Convert dataset dictionary to (X, y) tuple format"""
@@ -156,14 +150,11 @@ class Dataset(object):
                 return dataset.map(combine_tensors, num_parallel_calls=tf.data.AUTOTUNE)
 
             ds_train = restructure_dataset(ds_train)
-            print("element_spec right after restructuring")
-            print(ds_train.element_spec)
 
             # # Store the standardized images on disk - all random transformation 
             # # will be done on-the-fly to ensure they differ each epoch
             ds_train = ds_train.cache("cached_datasets/cached_SMALLNORB_train")  
-            print("element_spec right after cache")
-            print(ds_train.element_spec)
+
             # Iterate through the dataset to ensure all elements are loaded and cached.
             # Without this, the cache file won't be created because caching happens
             # during the first pass through the dataset.
