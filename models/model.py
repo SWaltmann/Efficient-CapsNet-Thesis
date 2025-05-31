@@ -288,7 +288,9 @@ class EMCapsNet(Model):
 
         if dataset == None:
             dataset = Dataset(self.model_name, self.config_path)
-        
+ 
+
+        # This only works for the small_gpu setting, which I will be using anyway
         dataset_train_full, _ = dataset.get_tf_data()
 
         val_split = 0.1  # validation split as a fraction
@@ -306,8 +308,9 @@ class EMCapsNet(Model):
             steps = 10*int(dataset.y_train.shape[0] / self.config['batch_size'])
         else:
             self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
-              loss=[None, CustomLoss()],  # TODO: create SpreadLoss class
-              metrics=[None, 'accuracy'])
+              loss=CustomLoss(),  # TODO: create SpreadLoss class
+              metrics=['accuracy'],
+              run_eagerly=True)
             steps=None
 
         print('-'*30 + f'{self.model_name} train' + '-'*30)
@@ -323,10 +326,9 @@ class EMCapsNet(Model):
 
 class CustomLoss(tf.keras.Loss):
     def call(self, y_true, y_pred):
-        # y_pred is [batch, 1, 1, 5, 1, 1]
-        y_pred_squeezed = tf.squeeze(y_pred, axis=[1, 2, 4, 5])
-        print(y_pred_squeezed)
-        print(y_true)
-        return tf.reduce_mean(tf.math.squared_difference(y_true, y_pred_squeezed))
+        print(f"I received these inputs:\n y_true = {y_true} \n y_pred = {y_pred}")
+        loss = tf.reduce_mean(tf.math.squared_difference(y_true, y_pred))
+        print(f"THE LOSS = {loss}")
+        return loss
 
 

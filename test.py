@@ -217,7 +217,7 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
 
         model_test.model.summary() 
 
-        ds_train, ds_test = dataset.get_tf_data()
+        # ds_train, ds_test = dataset.get_tf_data()
 
 
         # We must run it like this, because the intermediate values (which are 
@@ -331,10 +331,56 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         new_grid = original_em_capsnet_graph_smallnorb.position_grid(grid, 3, 1, 'VALID')
         print(new_grid)
 
+    def test_routing_layer(self):
+        # Test on small input
+        # The input comes from the prev conv layer, so it is shaped
+        # [batch, height, width, kernel, kernel, caps_in, caps_out, atom, atom]
+        # batch is not included in the Input shape
+        pose_shape = (5, 5, 3, 3, 16, 8, 4, 4)
+        poses_in = tf.keras.Input(shape=pose_shape)
+        # There are no activations for the out_caps yet ,so that dim is 1
+        act_shape = (5, 5, 3, 3, 16, 1, 1, 1)
+        act_in = tf.keras.Input(shape=act_shape)
+
+        out = EMRouting(name="routing")((poses_in, act_in))  
+        model = tf.keras.Model(inputs=[poses_in, act_in], outputs=out)
+
+        # Fake inputs. Just random numbers, 'simulating' the start of training
+        # where the values are not meaningful
+        # (1)+ adds batch dimension the the shape :) (Just a batchsize 1)
+        # Divide by random big number st the tensors contain small numbers
+
+        test_pose_in = tf.random.uniform((2,)+pose_shape) / 1e4
+        test_act_in = tf.random.uniform((2,)+act_shape) / 1e4
+
+        # Set random values to zeros (I assume the model will have zeros)
+
+        dropout_rate = 0.1
+        mask = tf.cast(tf.random.uniform(tf.shape(test_pose_in)) > dropout_rate, test_pose_in.dtype)
+        test_pose_in = test_pose_in * mask
+        print("Running model...")
+        test_input = test_pose_in, test_act_in
+        out = model([test_pose_in, test_act_in])
+        print(out)
+        print("...Ran model")
+        print([t.shape for t in out])
+
+
+    def test_dataset_labels(self):
+        model_name = 'SMALLNORB' 
+        custom_path = None
+
+        dataset = Dataset(model_name, config_path='config.json')
+        ds_train, ds_test = dataset.get_tf_data()
+        for sample in ds_train:
+            print(sample)
+
+            break
+
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
     # suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
-    suite.addTest(TestOriginalMatrixCapsules('test_model'))
+    suite.addTest(TestOriginalMatrixCapsules('test_routing_layer'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 

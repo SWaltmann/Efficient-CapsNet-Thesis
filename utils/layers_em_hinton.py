@@ -382,7 +382,7 @@ class EMRouting(tf.keras.layers.Layer):
         # Perform routing
         for i in range(self.iterations - 1):
             self.m_step(activations, votes, i)
-            self.e_step(votes)
+            self.e_step_log(votes)
 
         # Last routing iteration only requires the m-step
         self.m_step(activations, votes, self.iterations)
@@ -393,7 +393,6 @@ class EMRouting(tf.keras.layers.Layer):
         self.out_poses = tf.squeeze(self.out_poses, axis=[3,4,5])
         self.out_activations = tf.squeeze(self.out_activations, axis=[3,4,5])
     
-
         return self.out_poses, self.out_activations
 
 
@@ -501,6 +500,56 @@ class EMRouting(tf.keras.layers.Layer):
 
         self.R_ij = a_j * p_j / tf.reduce_sum(a_j * p_j, axis=[3,4,6], keepdims=True)
 
+    def e_step_log(self, V_ij):
+        """Compute the e-step in log space to prevent NaN from small (<e-2) inputs"""
+        mu_jh = self.out_poses
+        a_j = self.out_activations
+
+        # Compute the log probability (log p_j)
+        log_p_j = -0.5 * tf.reduce_sum(
+            tf.math.log(2 * math.pi * self.sigma_jh_sq) +
+            tf.pow((V_ij - mu_jh), 2) / self.sigma_jh_sq,
+            axis=[-1, -2],
+            keepdims=True
+        )
+
+        # Add log activations
+        log_a_j = tf.math.log(a_j + 1e-9)  # Adding epsilon to prevent log(0)
+        log_a_j = tf.broadcast_to(log_a_j, tf.shape(log_p_j))
+
+        # Compute log numerator
+        log_numerator = log_a_j + log_p_j
+
+        # Compute log denominator using log-sum-exp for numerical stability
+        log_denominator = tf.reduce_logsumexp(log_numerator, axis=[3, 4, 6], keepdims=True)
+
+        # Compute log assignment probabilities
+        log_R_ij = log_numerator - log_denominator
+
+        # Convert back from log-space
+        self.R_ij = tf.exp(log_R_ij)
+
+class Squeeze(tf.keras.layers.Layer):
+    """ This layer only squeezes out the some singleton dimensions st the
+    output suits the loss function better and the poses look nice
+    """
+    def __init__(self, **kwargs):
+        super(Squeeze, self).__init__(**kwargs)
+
+    def call(self, inputs):
+        # Shapes are [batch, height, width, capsules, atom, atom]
+        poses, acts = inputs
+
+        # Squeeze unnecessary dimension out:
+        # height, width are 1 at this point
+        poses = tf.squeeze(poses, [1, 2])
+        # poses is now [batch, capsules, atom, atom]
+
+        acts = tf.squeeze(acts, [1, 2, 4, 5])
+        # acts is now [batch, capsules] ie one-hot predictions
+
+        return poses, acts
+
 
 class DebugLayer(tf.keras.layers.Layer):
     """Layer to check intermediate values for bugs
@@ -509,9 +558,20 @@ class DebugLayer(tf.keras.layers.Layer):
     intermediate values for NaN or other bugs we have to pass them through a layer.
     """
     def __init__(self, msg="Check failed", **kwargs):
-        super().__init__(**kwargs)
+        super(DebugLayer, self).__init__(**kwargs)
         self.msg = msg
 
+
     def call(self, inputs):
-        tf.debugging.check_numerics(inputs, self.msg)
+        if isinstance(inputs, (list, tuple)):
+            for i, x in enumerate(inputs):
+                tf.debugging.check_numerics(x, f"{self.msg} input {i}")
+                if i ==1:
+                    print("In Layer:")
+                    print(self.msg)
+                    print("This are the activations:")
+                    print(x)
+        else:
+            tf.debugging.check_numerics(inputs, self.msg)
+
         return inputs
