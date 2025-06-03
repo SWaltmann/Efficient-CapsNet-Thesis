@@ -312,7 +312,6 @@ class ClassCaps(tf.keras.layers.Layer):
         # Add to poses (broadcasted over batch and capsules)
         return poses + coord
 
-        
 
 
 class EMRouting(tf.keras.layers.Layer):
@@ -349,7 +348,9 @@ class EMRouting(tf.keras.layers.Layer):
         # easier broadcasting later:)
 
         self.pose_shape_in = input_shape[0]
+        ps = self.pose_shape_in
         self.act_shape_in = input_shape[1]
+
 
         p_shape = self.pose_shape_in
 
@@ -372,11 +373,15 @@ class EMRouting(tf.keras.layers.Layer):
     def call(self, inputs):
         votes, activations = inputs
 
+
+        vs = tf.shape(votes)
+        b, h, w, k, i, o, a = vs[0], vs[1], vs[2], vs[3], vs[5], vs[6], vs[7]
+
         # Initialize empty tensors as input for 1st iter of the routing loop
-        self.out_activations = tf.zeros(tf.shape(activations))
-        self.out_poses = tf.zeros(tf.shape(votes))
+        self.out_activations = tf.zeros((b, h, w, 1, 1, 1, o, 1, 1))
+        self.out_poses = tf.zeros((b, h, w, 1, 1, 1, o, a, a))
         # post in Hinton's implementation
-        self.R_ij = tf.nn.softmax(tf.zeros(tf.shape(activations)))
+        self.R_ij = tf.nn.softmax(tf.zeros((b, h, w, k, k, i, o, 1, 1)), axis=6)
 
 
         # Perform routing
@@ -422,8 +427,8 @@ class EMRouting(tf.keras.layers.Layer):
 
         # V_ij are the votes, shaped:    [batch, height, width, kernel, kernel, 
         #                                 caps_in, caps_out, sqrt_atom, sqrt_atom]
-        # R_ij is shaped like activatons:[batch, height, width, kernel, kernel,
-        #                                 caps_in, 1, 1, 1]
+        # R_ij is shaped:                [batch, height, width, kernel, kernel,
+        #                                 caps_in, caps_out, 1, 1]
 
         # Each of the 16 pose values must be multiplied by the same R_ij
         # Since we were smart about the shapes they broadcast nicely
@@ -447,7 +452,7 @@ class EMRouting(tf.keras.layers.Layer):
         # combines this with the old value to get 'center'. But we skip
         # that step since it is not mentioned in the paper.
         mu_jh = (tf.reduce_sum(R_ij * V_ij, axis=[3,4,5], keepdims=True) 
-                / sum_R_ij + 0.0000001)  # e-7 from Hinton's implementation
+                / (sum_R_ij + 0.0000001))  # e-7 from Hinton's implementation
                 # e-7 prevents numerical instability (Gritzman, 2019)
         
         # variance in Hinton's implementation
@@ -459,7 +464,7 @@ class EMRouting(tf.keras.layers.Layer):
 
         # Completely lost how Hinton's code relates to their paper at this point
         # Good luck figuring that out    
-        cost_h = (self.beta_u + tf.math.log(sigma_jh)) * sum_R_ij
+        cost_h = (self.beta_u + tf.math.log(sigma_jh_sq)) * sum_R_ij
         # beta in Hinton's implementation
         inverse_temp = self.final_lambda*(1-tf.pow(0.95, i+1))
 
