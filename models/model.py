@@ -308,9 +308,9 @@ class EMCapsNet(Model):
             steps = 10*int(dataset.y_train.shape[0] / self.config['batch_size'])
         else:
             self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
-              loss=CustomLoss(),  # TODO: create SpreadLoss class
+              loss=SpreadLoss(),  # TODO: create SpreadLoss class
               metrics=['accuracy'],
-              run_eagerly=True)
+              run_eagerly=False)
             steps=None
 
         print('-'*30 + f'{self.model_name} train' + '-'*30)
@@ -326,9 +326,26 @@ class EMCapsNet(Model):
 
 class CustomLoss(tf.keras.Loss):
     def call(self, y_true, y_pred):
-        print(f"I received these inputs:\n y_true = {y_true} \n y_pred = {y_pred}")
+        print(f"y_pred = {y_pred}\ny_true = {y_true}")
         loss = tf.reduce_mean(tf.math.squared_difference(y_true, y_pred))
-        print(f"THE LOSS = {loss}")
         return loss
 
+class SpreadLoss(tf.keras.losses.Loss):
+    def __init__(self, margin=0.2):
+        super().__init__()
+        self.margin = margin
 
+    def call(self, y_true, y_pred):
+        # at: true class activation (shape [B, 1])
+        at = tf.reduce_sum(y_pred * y_true, axis=1, keepdims=True)
+
+        # Calculate margin loss for all classes (including target class temporarily)
+        # Broadcast at to all classes
+        loss_per_class = tf.square(tf.maximum(0.0, self.margin - (at - y_pred)))
+        
+        # Target class should not be used in the sum
+        # Mask out the target class by multiplying with (1 - y_true)
+        masked_loss = loss_per_class * (1 - y_true)
+
+        # Final loss: sum over wrong classes, then average across batch
+        return tf.reduce_mean(tf.reduce_sum(masked_loss, axis=1))
