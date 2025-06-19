@@ -23,6 +23,7 @@ from models import efficient_capsnet_graph_mnist, efficient_capsnet_graph_smalln
 import os
 import json
 from tqdm.notebook import tqdm
+import time
 
 
 class Model(object):
@@ -326,7 +327,75 @@ class EMCapsNet(Model):
         
         return history
     
-    
+    def custom_train(self, dataset, initial_epoch=0):
+        # This only works for the small_gpu setting, which I will be using anyway
+        dataset_train_full, _ = dataset.get_tf_data()
+
+        val_split = 0.1  # validation split as a fraction
+        # Dataset is batched,find num of batches corresponding the val_split
+        validation_size = int(dataset.train_size * val_split // self.config["batch_size"])
+
+        dataset_train = dataset_train_full.skip(validation_size)
+        dataset_val = dataset_train_full.take(validation_size)
+
+        optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['lr'])
+        loss = SpreadLoss()
+
+        # Prepare the metrics.
+        train_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+        val_acc_metric = tf.keras.metrics.CategoricalAccuracy()
+
+        @tf.function
+        def train_step(x, y, margin):
+            with tf.GradientTape() as tape:
+                logits = self.model(x, training=True)
+                loss_value = loss(y, logits, margin=margin)
+            grads = tape.gradient(loss_value, self.model.trainable_weights)
+            optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
+            train_acc_metric.update_state(y, logits)
+            return loss_value
+        
+        @tf.function
+        def test_step(x, y):
+            val_logits = self.model(x, training=False)
+            val_acc_metric.update_state(y, val_logits)
+
+        for epoch in range(self.config[f'epochs']):
+            print("\nStart of epoch %d" % (epoch,))
+            start_time = time.time()
+
+            # The margin for the spread loss, linearly increases from 0.2 to 0.9
+            margin = min(0.9, (epoch+2)/10)
+            margin_tensor = tf.constant(margin, dtype=tf.float32)
+
+
+            # Iterate over the batches of the dataset.
+            for step, (x_batch_train, y_batch_train) in enumerate(dataset_train):
+                loss_value = train_step(x_batch_train, y_batch_train, margin_tensor)
+
+                # Log every 200 batches.
+                if step % 200 == 0:
+                    print(
+                        "Training loss (for one batch) at step %d: %.4f"
+                        % (step, float(loss_value))
+                    )
+                    print("Seen so far: %d samples" % ((step + 1) * self.config['batch_size']))
+
+            # Display metrics at the end of each epoch.
+            train_acc = train_acc_metric.result()
+            print("Training acc over epoch: %.4f" % (float(train_acc),))
+
+            # Reset training metrics at the end of each epoch
+            train_acc_metric.reset_states()
+
+            # Run a validation loop at the end of each epoch.
+            for x_batch_val, y_batch_val in dataset_val:
+                test_step(x_batch_val, y_batch_val)
+
+            val_acc = val_acc_metric.result()
+            val_acc_metric.reset_states()
+            print("Validation acc: %.4f" % (float(val_acc),))
+            print("Time taken: %.2fs" % (time.time() - start_time))
 
 class CustomLoss(tf.keras.Loss):
     def call(self, y_true, y_pred):
@@ -339,14 +408,14 @@ class SpreadLoss(tf.keras.losses.Loss):
         super().__init__()
         self.margin = margin
 
-    def call(self, y_true, y_pred):
+    def __call__(self, y_true, y_pred, margin=0.2):
         y_pred = tf.debugging.check_numerics(y_pred, message="y_pred")
         # at: true class activation (shape [B, 1])
         at = tf.reduce_sum(y_pred * y_true, axis=1, keepdims=True)
 
         # Calculate margin loss for all classes (including target class temporarily)
         # Broadcast at to all classes
-        loss_per_class = tf.square(tf.maximum(0.0, self.margin - (at - y_pred)))
+        loss_per_class = tf.square(tf.maximum(0.0, margin - (at - y_pred)))
         
         # Target class should not be used in the sum
         # Mask out the target class by multiplying with (1 - y_true)
@@ -357,7 +426,7 @@ class SpreadLoss(tf.keras.losses.Loss):
         extra_loss = tf.square(1-mean)
 
         # Final loss: sum over wrong classes, then average across batch
-        return tf.reduce_mean(tf.reduce_sum(masked_loss, axis=1)) + extra_loss
+        return tf.reduce_mean(tf.reduce_sum(masked_loss, axis=1))
 
 
 class SpreadLossCallback(tf.keras.callbacks.Callback):

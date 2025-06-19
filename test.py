@@ -423,9 +423,26 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         out = model([test_caps_in, test_act_in])
         print(out)
 
+    def test_custom_train(self):
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+        tf.config.experimental.set_memory_growth(gpus[0], True)
+
+        model_name = 'SMALLNORB' 
+        custom_path = None
+
+        dataset = Dataset(model_name, config_path='config.json')
+
+        model_test = EMCapsNet(model_name, mode='train', verbose=False, custom_path=custom_path)
+
+        model_test.model.summary() 
+ 
+        history = model_test.custom_train(dataset=dataset, initial_epoch=0)
+        
+
 if __name__ == '__main__':
     suite = unittest.TestSuite()
     # suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
-    suite.addTest(TestOriginalMatrixCapsules('test_model'))
+    suite.addTest(TestOriginalMatrixCapsules('test_custom_train'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 
