@@ -300,6 +300,10 @@ class EMCapsNet(Model):
         dataset_train = dataset_train_full.skip(validation_size)
         dataset_val = dataset_train_full.take(validation_size)
 
+        # Use this callback to change the margin of the MarginLoss
+        spreadloss = SpreadLoss()
+        callbacks = callbacks + [SpreadLossCallback(spreadloss)]
+
         if self.model_name == 'MULTIMNIST':
             self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
               loss=[marginLoss, 'mse', 'mse'],
@@ -308,13 +312,12 @@ class EMCapsNet(Model):
             steps = 10*int(dataset.y_train.shape[0] / self.config['batch_size'])
         else:
             self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config['lr']),
-              loss=SpreadLoss(),  # TODO: create SpreadLoss class
+              loss=spreadloss, 
               metrics=['accuracy'],
               run_eagerly=False)
             steps=None
 
         print('-'*30 + f'{self.model_name} train' + '-'*30)
-
 
         history = self.model.fit(dataset_train,
           epochs=self.config[f'epochs'], steps_per_epoch=steps,
@@ -322,6 +325,7 @@ class EMCapsNet(Model):
           callbacks=callbacks)
         
         return history
+    
     
 
 class CustomLoss(tf.keras.Loss):
@@ -331,11 +335,12 @@ class CustomLoss(tf.keras.Loss):
         return loss
 
 class SpreadLoss(tf.keras.losses.Loss):
-    def __init__(self, margin=0.2):
+    def __init__(self, margin=0.9):
         super().__init__()
         self.margin = margin
 
     def call(self, y_true, y_pred):
+        y_pred = tf.debugging.check_numerics(y_pred, message="y_pred")
         # at: true class activation (shape [B, 1])
         at = tf.reduce_sum(y_pred * y_true, axis=1, keepdims=True)
 
@@ -347,5 +352,20 @@ class SpreadLoss(tf.keras.losses.Loss):
         # Mask out the target class by multiplying with (1 - y_true)
         masked_loss = loss_per_class * (1 - y_true)
 
+        # Additional loss to prevent the model from predicting all zeroes
+        mean = 5 * tf.reduce_mean(y_pred) 
+        extra_loss = tf.square(1-mean)
+
         # Final loss: sum over wrong classes, then average across batch
-        return tf.reduce_mean(tf.reduce_sum(masked_loss, axis=1))
+        return tf.reduce_mean(tf.reduce_sum(masked_loss, axis=1)) + extra_loss
+
+
+class SpreadLossCallback(tf.keras.callbacks.Callback):
+    def __init__(self, loss_object):
+        super().__init__()
+        self.loss_object = loss_object
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < 8:
+            margin = (epoch + 2)/10
+            self.loss_object.margin = margin
