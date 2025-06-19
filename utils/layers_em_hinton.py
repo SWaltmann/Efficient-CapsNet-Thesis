@@ -22,9 +22,9 @@ class ReLUConv(tf.keras.layers.Layer):
             strides=self.stride,
             padding='valid',
             activation='relu',
-            kernel_regularizer=tf.keras.regularizers.l2(.05),
-            kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=5e-2),
-            bias_initializer=tf.keras.initializers.Constant(0.1)
+            # kernel_regularizer=tf.keras.regularizers.l2(.05),
+            kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=5),
+            # bias_initializer=tf.keras.initializers.Constant(0.1)
         )
         self.built = True
 
@@ -54,28 +54,28 @@ class PrimaryCaps(tf.keras.layers.Layer):
             kernel_size=self.kernel_size,
             strides=self.stride,
             padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(.0000002),
+            # kernel_regularizer=tf.keras.regularizers.l2(.0000002),
             use_bias=False
         )
-        # Manually construct the kernel out of two tensors with different 
-        # initialization parameters
-        self.conv.build(input_shape)  # build layer so that we can override kernel
+        # # Manually construct the kernel out of two tensors with different 
+        # # initialization parameters
+        # self.conv.build(input_shape)  # build layer so that we can override kernel
 
-        # Create the kernels
-        pose_initializer = tf.keras.initializers.TruncatedNormal(stddev=0.5)
-        pose_kernel = pose_initializer(shape=[self.kernel_size, 
-                                              self.kernel_size, 
-                                              input_shape[-1], 
-                                              self.out_atoms * self.num_capsules])
+        # # Create the kernels
+        # pose_initializer = tf.keras.initializers.TruncatedNormal(stddev=0.5)
+        # pose_kernel = pose_initializer(shape=[self.kernel_size, 
+        #                                       self.kernel_size, 
+        #                                       input_shape[-1], 
+        #                                       self.out_atoms * self.num_capsules])
 
-        activation_initializer = tf.keras.initializers.TruncatedNormal(stddev=3.0)
-        act_kernel = activation_initializer(shape=[self.kernel_size, 
-                                                   self.kernel_size, 
-                                                   input_shape[-1], 
-                                                   1 * self.num_capsules])
+        # activation_initializer = tf.keras.initializers.TruncatedNormal(stddev=3.0)
+        # act_kernel = activation_initializer(shape=[self.kernel_size, 
+        #                                            self.kernel_size, 
+        #                                            input_shape[-1], 
+        #                                            1 * self.num_capsules])
         
-        kernel = tf.concat([pose_kernel, act_kernel], axis=-1)
-        self.conv.kernel.assign(kernel)
+        # kernel = tf.concat([pose_kernel, act_kernel], axis=-1)
+        # self.conv.kernel.assign(kernel)
 
         self.built = True
 
@@ -138,6 +138,7 @@ class ConvCaps(tf.keras.layers.Layer):
                                                   self.out_capsules,
                                                   self.sqrt_atom,
                                                   self.sqrt_atom),
+                                           initializer=tf.keras.initializers.TruncatedNormal(stddev=0.3),
                                            name = "pose_kernel",)
         self.built = True
 
@@ -146,6 +147,9 @@ class ConvCaps(tf.keras.layers.Layer):
 
         votes_out = self.conv_caps(poses, activations=False)
         act_out = self.conv_caps(activations, activations=True)
+
+        votes_out = tf.debugging.check_numerics(votes_out, message="votes in ConvCaps is messed up")
+        act_out = tf.debugging.check_numerics(act_out, message="acts_out in ConvCaps is messed up")
 
         return votes_out, act_out
         
@@ -258,6 +262,8 @@ class ClassCaps(tf.keras.layers.Layer):
 
         votes = tf.reshape(votes, (b, 1, 1, 1, 1, h*w*i, o, a, a))
         acts = tf.reshape(activations, (b, 1, 1, 1, 1, h*w*i, 1, 1, 1))
+        votes = tf.debugging.check_numerics(votes, message="votes in ClassCaps is messed up")
+        acts = tf.debugging.check_numerics(acts, message="acts in ClassCaps is messed up")
         return votes, acts
 
     def add_kernel(self, tensor):
@@ -326,6 +332,7 @@ class EMRouting(tf.keras.layers.Layer):
         self.iterations = iterations
         self.min_var = min_var
         self.final_lambda = final_beta
+        self.verbose = False
 
 
     def build(self, input_shape):
@@ -371,8 +378,10 @@ class EMRouting(tf.keras.layers.Layer):
 
         
     def call(self, inputs):
+        
         votes, activations = inputs
-
+        votes = tf.debugging.check_numerics(votes, message="VOTES ARE FUCKEDD")
+        activations = tf.debugging.check_numerics(activations, message="ACTS ARE FUCKEDD")
 
         vs = tf.shape(votes)
         b, h, w, k, i, o, a = vs[0], vs[1], vs[2], vs[3], vs[5], vs[6], vs[7]
@@ -381,16 +390,24 @@ class EMRouting(tf.keras.layers.Layer):
         self.out_activations = tf.zeros((b, h, w, 1, 1, 1, o, 1, 1))
         self.out_poses = tf.zeros((b, h, w, 1, 1, 1, o, a, a))
         # post in Hinton's implementation
-        self.R_ij = tf.nn.softmax(tf.zeros((b, h, w, k, k, i, o, 1, 1)), axis=6)
+        self.R_ij = tf.nn.softmax(tf.zeros((b, h, w, 1, 1, i, o, 1, 1)), axis=6)
 
 
         # Perform routing
         for i in range(self.iterations - 1):
+            if self.verbose:
+                print(f"STARTING ITERATION {i+1}")
             self.m_step(activations, votes, i)
             self.e_step_log(votes)
-
+            if self.verbose:
+                print("\n\n")
         # Last routing iteration only requires the m-step
+        if self.verbose:
+            print(f"FINAL ITERATION ({i+2})")
         self.m_step(activations, votes, self.iterations)
+        if self.verbose:
+            print("-"*60)
+            print("\n\n")
 
         # Remove the singleton dimsionsions that are left over from the kernel 
         # and in_caps so that the shape matches that of the original input to 
@@ -419,12 +436,17 @@ class EMRouting(tf.keras.layers.Layer):
         R_ij = self.R_ij
 
         # vote_conf in Hinton's implementation
-        R_ij = R_ij * a_i  
-
+        R_ij = R_ij * a_i
+        # All values are the same per capsule, just repeated over multiple kernels
+        if self.verbose:
+            print("R_ij * a_i is:")
+            print(R_ij)
         # We need Sum_i(R_ij) multiple times so we'll store it:
         # masses in Hinton's implementation
         sum_R_ij = tf.reduce_sum(R_ij, axis=[3,4,5], keepdims=True)
-
+        if self.verbose:
+            print("sum_R_ij is:")
+            print(sum_R_ij)
         # V_ij are the votes, shaped:    [batch, height, width, kernel, kernel, 
         #                                 caps_in, caps_out, sqrt_atom, sqrt_atom]
         # R_ij is shaped:                [batch, height, width, kernel, kernel,
@@ -452,28 +474,47 @@ class EMRouting(tf.keras.layers.Layer):
         # combines this with the old value to get 'center'. But we skip
         # that step since it is not mentioned in the paper.
         mu_jh = (tf.reduce_sum(R_ij * V_ij, axis=[3,4,5], keepdims=True) 
-                / (sum_R_ij + 0.0000001))  # e-7 from Hinton's implementation
+                / tf.maximum(sum_R_ij, 1e-7))  # e-7 from Hinton's implementation
                 # e-7 prevents numerical instability (Gritzman, 2019)
-        
+        if self.verbose:
+            print("mu_jh is:")
+            print(mu_jh)
         # variance in Hinton's implementation
         sigma_jh_sq = (tf.reduce_sum(R_ij * tf.pow((V_ij - mu_jh), 2), axis=[3,4,5], keepdims=True)
-                       / sum_R_ij) + self.min_var 
-
+                       / tf.maximum(sum_R_ij, 1e-7))
+        # Make sure the variance is never 0, or super large
+        sigma_jh_sq = tf.clip_by_value(sigma_jh_sq, 1e-9, 1e9)
+        if self.verbose:
+            print("sigma_jh_sq is:")
+            print(sigma_jh_sq)
         # This happens in the paper, but not in Hinton's code
-        sigma_jh = tf.math.sqrt(sigma_jh_sq)
+        # sigma_jh = tf.math.sqrt(sigma_jh_sq)
 
         # Completely lost how Hinton's code relates to their paper at this point
         # Good luck figuring that out    
-        cost_h = (self.beta_u + tf.math.log(sigma_jh_sq)) * sum_R_ij
+        cost_h = (self.beta_u - tf.math.log(tf.math.maximum(sigma_jh_sq, 1e-9))) * sum_R_ij
+        if self.verbose:
+            print("cost_h is:")
+            print(cost_h)
         # beta in Hinton's implementation
         inverse_temp = self.final_lambda*(1-tf.pow(0.95, i+1))
+
+        if self.verbose:
+            print("inverse temperature is:")
+            print(inverse_temp)
 
         # activation_update in Hinton's implementation (I THINK, shit's a maze imo)
         # Maybe logit is actually closer but yout guess is as good as mine
         a_j = tf.math.sigmoid(
             inverse_temp*(self.beta_a - tf.reduce_sum(cost_h, axis=[-1,-2], keepdims=True))  # Sum over values in pose matrix
               )
+        if self.verbose:
+            print("a_j is:")
+            print(a_j)
 
+            print("BEFORE THE SIGMOID:")
+            print(inverse_temp*(self.beta_a - tf.reduce_sum(cost_h, axis=[-1,-2], keepdims=True)))
+        # a_j = tf.debugging.check_numerics(a_j, message="a_j")
         # Assign everythin to the corresponding attributes 
         # Could have done that immediately but wanted to follow paper's notation
         self.out_activations = a_j
@@ -504,6 +545,7 @@ class EMRouting(tf.keras.layers.Layer):
         
 
         self.R_ij = a_j * p_j / tf.reduce_sum(a_j * p_j, axis=[3,4,6], keepdims=True)
+        
 
     def e_step_log(self, V_ij):
         """Compute the e-step in log space to prevent NaN from small (<e-2) inputs"""
@@ -511,15 +553,18 @@ class EMRouting(tf.keras.layers.Layer):
         a_j = self.out_activations
 
         # Compute the log probability (log p_j)
-        log_p_j = -0.5 * tf.reduce_sum(
+        log_p_j = -tf.reduce_sum(
             tf.math.log(2 * math.pi * self.sigma_jh_sq) +
-            tf.pow((V_ij - mu_jh), 2) / self.sigma_jh_sq,
+            tf.pow((V_ij - mu_jh), 2) / (2* self.sigma_jh_sq),
             axis=[-1, -2],
             keepdims=True
         )
+        if self.verbose:
+            print("p_j is:")    
+            print(tf.exp(log_p_j))
 
         # Add log activations
-        log_a_j = tf.math.log(a_j + 1e-9)  # Adding epsilon to prevent log(0)
+        log_a_j = tf.math.log(tf.math.maximum(a_j, 1e-9)) 
         log_a_j = tf.broadcast_to(log_a_j, tf.shape(log_p_j))
 
         # Compute log numerator
@@ -531,8 +576,13 @@ class EMRouting(tf.keras.layers.Layer):
         # Compute log assignment probabilities
         log_R_ij = log_numerator - log_denominator
 
+        # Clip log(R_ij), so that exponentiating it never leads to too large values
+        log_R_ij = tf.clip_by_value(log_R_ij, -200, 200)  # e^500 (=1.4e217) easily falls within the range of representable numbers by float64 (which is 1e300 or something)
         # Convert back from log-space
         self.R_ij = tf.exp(log_R_ij)
+        if self.verbose:
+            print("NEW R_ij is:")
+            print(self.R_ij)
 
 class Squeeze(tf.keras.layers.Layer):
     """ This layer only squeezes out the some singleton dimensions st the
@@ -544,7 +594,9 @@ class Squeeze(tf.keras.layers.Layer):
     def call(self, inputs):
         # Shapes are [batch, height, width, capsules, atom, atom]
         poses, acts = inputs
-
+        
+        acts = tf.debugging.check_numerics(acts, message="acts in Squeeze")
+        poses = tf.debugging.check_numerics(poses, message="poses in Squeeze")
         # Squeeze unnecessary dimension out:
         # height, width are 1 at this point
         poses = tf.squeeze(poses, [1, 2])
