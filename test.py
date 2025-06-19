@@ -377,10 +377,55 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
 
             break
 
+    def test_small_routing_example(self):
+        """In Google Sheets, I manually created this example
+        I know what the output should be, so this will check 
+        if my implementation matches how I think things should work
+        """
+        # batch is not included in the Input shape
+        pose_shape = (1, 1, 1, 1, 5, 2, 1, 2)
+        poses_in = tf.keras.Input(shape=pose_shape)
+        # There are no activations for the out_caps yet ,so that dim is 1
+        act_shape = (1, 1, 1, 1, 5, 1, 1, 1)
+        act_in = tf.keras.Input(shape=act_shape)
+
+        out = EMRouting(name="routing")((poses_in, act_in))  
+        model = tf.keras.Model(inputs=[poses_in, act_in], outputs=out)
+
+        # Constructing the votes.
+        # We only use x and y. Not rotation or anything.
+        # The routing should still work
+        votes = [[[[[[[[[3, 2]], [[5, 6]]], 
+                      [[[5, 2]], [[1, 1]]], 
+                      [[[4, 2]], [[0, 7]]], 
+                      [[[8, 2]], [[3, 3]]], 
+                      [[[1, 4]], [[2, 1]]]]]]]]]
+
+        votes_tensor = tf.convert_to_tensor(votes)
+
+        # Constructing the activation
+        acts = [[[[[[ [[[0.8]]], [[[0.75]]], [[[0.9]]], [[[0.2]]], [[[0.3]]] ]]]]]]
+        acts_tensor = tf.convert_to_tensor(acts)
+        out = model([votes_tensor, acts_tensor])
+        print(out)
+        print([t.shape for t in out])
+
+    def test_small_conv_caps(self):
+        # 5x5 image, with 5 input capsules
+        poses_in = tf.keras.Input(shape=(5, 5, 5, 4, 4))
+        act_in = tf.keras.Input(shape=(5, 5, 5, 1, 1))
+        out = ConvCaps(name="convcaps")((poses_in, act_in))
+        model = tf.keras.Model(inputs=[poses_in, act_in], outputs=out)
+
+        test_caps_in = tf.ones((1, 5, 5, 5, 4, 4)) * 5
+        test_act_in = tf.ones((1, 5, 5, 5, 1, 1)) * 0.9
+
+        out = model([test_caps_in, test_act_in])
+        print(out)
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
     # suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
-    suite.addTest(TestOriginalMatrixCapsules('test_routing_layer'))
+    suite.addTest(TestOriginalMatrixCapsules('test_model'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 
