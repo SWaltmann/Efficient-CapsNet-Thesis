@@ -23,7 +23,7 @@ class ReLUConv(tf.keras.layers.Layer):
             padding='valid',
             activation='relu',
             # kernel_regularizer=tf.keras.regularizers.l2(.05),
-            kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=5),
+            kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=5e-2),
             # bias_initializer=tf.keras.initializers.Constant(0.1)
         )
         self.built = True
@@ -206,6 +206,28 @@ class ConvCaps(tf.keras.layers.Layer):
         #   b=batch, h=height, w=width, xy=kernel*kernel, i=in_capsules, o=out_capsules  
         #   mnp=pose_matrix (4*4)
         matrices = tf.einsum('bhwxyimn,xyiopn->bhwxyiomp', patches, self.pose_kernel)
+        # shape = tf.shape(patches)  # shape is a Tensor
+        # b, h, w, k, _, i, a, _ = tf.unstack(shape)
+        # kernel = self.pose_kernel
+        # o = tf.shape(kernel)[3]
+        # # First I reshape both to b, h, w, k, k, i, o, a, a
+        # # That is so that both can be broadcasted to the correct numbers
+        # # For the missing dims I put a 1 now, to be broadcasted later
+        # patches_reshape = tf.reshape(patches, (b, h, w, k, k, i, 1, a, a))
+        # kernel_reshape  = tf.reshape(kernel,  (1, 1, 1, k, k, i, o, a, a,))
+
+        # # Then we broadcast them to the same shape. Now we have the same amount
+        # # of tensors in both the patches and the kernels
+        # patch = tf.broadcast_to(patches_reshape, (b, h, w, k, k, i, o, a, a))
+        # kern = tf.broadcast_to(kernel_reshape, (b, h, w, k, k, i, o, a, a))
+
+        # # Now we reshape them, so that we are left with many matrices that can be matmulled
+        # batch_patch = tf.reshape(patch, (b*h*w*k*k*i*o, a, a))
+        # batch_kern = tf.reshape(kern, (b*h*w*k*k*i*o, a, a))
+
+        # matrices = tf.matmul(batch_patch, batch_kern)
+        # matrices = tf.reshape(matrices, (b, h, w, k, k, i, o, a, a))
+
         #TODO: I am unsure this does the correct multiplications could be summing things
         return matrices
 
@@ -327,7 +349,7 @@ class EMRouting(tf.keras.layers.Layer):
     them. This layer takes the activations and poses and finds the new 
     activations.
     """
-    def __init__(self, iterations=3, min_var=0.0005, final_beta=1.0, **kwargs):
+    def __init__(self, iterations=2, min_var=0.0005, final_beta=0.01, **kwargs):
         super(EMRouting, self).__init__(**kwargs)
         self.iterations = iterations
         self.min_var = min_var
@@ -391,6 +413,7 @@ class EMRouting(tf.keras.layers.Layer):
         self.out_poses = tf.zeros((b, h, w, 1, 1, 1, o, a, a))
         # post in Hinton's implementation
         self.R_ij = tf.nn.softmax(tf.zeros((b, h, w, 1, 1, i, o, 1, 1)), axis=6)
+        self.R_ij_prev = self.R_ij
 
 
         # Perform routing
@@ -436,7 +459,9 @@ class EMRouting(tf.keras.layers.Layer):
         R_ij = self.R_ij
 
         # vote_conf in Hinton's implementation
-        R_ij = R_ij * a_i
+        alpha = 0.2
+        R_ij = (R_ij * a_i) * (1 - alpha) + alpha * self.R_ij_prev
+        self.R_ij_prev = R_ij
         # All values are the same per capsule, just repeated over multiple kernels
         if self.verbose:
             print("R_ij * a_i is:")
@@ -474,16 +499,21 @@ class EMRouting(tf.keras.layers.Layer):
         # combines this with the old value to get 'center'. But we skip
         # that step since it is not mentioned in the paper.
         mu_jh = (tf.reduce_sum(R_ij * V_ij, axis=[3,4,5], keepdims=True) 
-                / tf.maximum(sum_R_ij, 1e-7))  # e-7 from Hinton's implementation
+                / (sum_R_ij + 1e-7))  # e-7 from Hinton's implementation
                 # e-7 prevents numerical instability (Gritzman, 2019)
         if self.verbose:
             print("mu_jh is:")
             print(mu_jh)
         # variance in Hinton's implementation
         sigma_jh_sq = (tf.reduce_sum(R_ij * tf.pow((V_ij - mu_jh), 2), axis=[3,4,5], keepdims=True)
-                       / tf.maximum(sum_R_ij, 1e-7))
+                       / (sum_R_ij + 1e-7))
         # Make sure the variance is never 0, or super large
-        sigma_jh_sq = tf.clip_by_value(sigma_jh_sq, 1e-9, 1e9)
+        # sigma_jh_sq_clipmax = tf.minimum(sigma_jh_sq, 1e9)
+        # tf.print("Clipped ratio (was too large):", tf.reduce_mean(tf.cast(sigma_jh_sq != sigma_jh_sq_clipmax, tf.float32)))
+        # sigma_jh_sq_clipmin = tf.maximum(sigma_jh_sq_clipmax, 1e-9)
+        # tf.print("Clipped ratio (was too small):", tf.reduce_mean(tf.cast(sigma_jh_sq_clipmin != sigma_jh_sq_clipmax, tf.float32)))
+       
+        # sigma_jh_sq = sigma_jh_sq_clipmin
         if self.verbose:
             print("sigma_jh_sq is:")
             print(sigma_jh_sq)
@@ -492,7 +522,7 @@ class EMRouting(tf.keras.layers.Layer):
 
         # Completely lost how Hinton's code relates to their paper at this point
         # Good luck figuring that out    
-        cost_h = (self.beta_u - tf.math.log(tf.math.maximum(sigma_jh_sq, 1e-9))) * sum_R_ij
+        cost_h = (self.beta_u - tf.math.log(sigma_jh_sq + 1e-9)) * sum_R_ij
         if self.verbose:
             print("cost_h is:")
             print(cost_h)
@@ -517,6 +547,7 @@ class EMRouting(tf.keras.layers.Layer):
         # a_j = tf.debugging.check_numerics(a_j, message="a_j")
         # Assign everythin to the corresponding attributes 
         # Could have done that immediately but wanted to follow paper's notation
+        # a_j = tf.nn.softmax(a_j, axis=6)
         self.out_activations = a_j
         self.out_poses = mu_jh
         self.sigma_jh_sq = sigma_jh_sq
@@ -564,7 +595,7 @@ class EMRouting(tf.keras.layers.Layer):
             print(tf.exp(log_p_j))
 
         # Add log activations
-        log_a_j = tf.math.log(tf.math.maximum(a_j, 1e-9)) 
+        log_a_j = tf.math.log(a_j + 1e-9)
         log_a_j = tf.broadcast_to(log_a_j, tf.shape(log_p_j))
 
         # Compute log numerator
@@ -577,7 +608,7 @@ class EMRouting(tf.keras.layers.Layer):
         log_R_ij = log_numerator - log_denominator
 
         # Clip log(R_ij), so that exponentiating it never leads to too large values
-        log_R_ij = tf.clip_by_value(log_R_ij, -200, 200)  # e^500 (=1.4e217) easily falls within the range of representable numbers by float64 (which is 1e300 or something)
+        # log_R_ij = tf.clip_by_value(log_R_ij, -200, 200)  # e^500 (=1.4e217) easily falls within the range of representable numbers by float64 (which is 1e300 or something)
         # Convert back from log-space
         self.R_ij = tf.exp(log_R_ij)
         if self.verbose:
@@ -620,15 +651,15 @@ class DebugLayer(tf.keras.layers.Layer):
 
 
     def call(self, inputs):
-        if isinstance(inputs, (list, tuple)):
-            for i, x in enumerate(inputs):
-                tf.debugging.check_numerics(x, f"{self.msg} input {i}")
-                if i ==1:
-                    print("In Layer:")
-                    print(self.msg)
-                    print("This are the activations:")
-                    print(x)
-        else:
-            tf.debugging.check_numerics(inputs, self.msg)
+        # if isinstance(inputs, (list, tuple)):
+        #     for i, x in enumerate(inputs):
+        #         tf.debugging.check_numerics(x, f"{self.msg} input {i}")
+        #         if i ==1:
+        #             print("In Layer:")
+        #             print(self.msg)
+        #             print("This are the activations:")
+        #             print(x)
+        # else:
+        #     tf.debugging.check_numerics(inputs, self.msg)
 
         return inputs

@@ -14,8 +14,9 @@ from skimage.metrics import structural_similarity as ssim
 from utils import pre_process_smallnorb as prep_norb
 from utils import Dataset, plotImages, plotWrongImages
 from models import EMCapsNet
-from utils.layers_em_hinton import PrimaryCaps, ConvCaps, EMRouting
+from utils.layers_em_hinton import PrimaryCaps, ConvCaps, EMRouting, ReLUConv, ClassCaps, Squeeze
 from models import original_em_capsnet_graph_smallnorb
+from models.original_em_capsnet_graph_smallnorb import position_grid_conv
 
 class TestSmallNorbPreProcessing(unittest.TestCase):
 
@@ -411,17 +412,35 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         print([t.shape for t in out])
 
     def test_small_conv_caps(self):
-        # 5x5 image, with 5 input capsules
-        poses_in = tf.keras.Input(shape=(5, 5, 5, 4, 4))
-        act_in = tf.keras.Input(shape=(5, 5, 5, 1, 1))
-        out = ConvCaps(name="convcaps")((poses_in, act_in))
+        # 5x5 image, with 1 input capsules
+        # Define the shape
+        input_shape = (5, 5, 1, 4, 4)
+
+        # Create the base tensor filled with zeros
+        fake_input = np.zeros((1, 5, 5, 1, 4, 4), dtype=np.float32)
+
+        # Fill the slices with increasing integers
+        counter = 0
+        for i in range(5):
+            for j in range(5):
+                fake_input[0, i, j, 0, :, :] = counter
+                counter += 1
+
+        # Convert to Tensor
+        fake_input_tensor = tf.convert_to_tensor(fake_input)
+
+        # Optionally wrap it in a Keras Input for a model
+        poses = tf.keras.Input(shape=(5, 5, 1, 4, 4))
+        poses_in = tf.keras.Input(shape=(5, 5, 1, 4, 4))
+        act_in = tf.keras.Input(shape=(5, 5, 1, 1, 1))
+        out = ConvCaps(C=1, name="convcaps")((poses_in, act_in))
         model = tf.keras.Model(inputs=[poses_in, act_in], outputs=out)
 
-        test_caps_in = tf.ones((1, 5, 5, 5, 4, 4)) * 5
-        test_act_in = tf.ones((1, 5, 5, 5, 1, 1)) * 0.9
+        test_act_in = tf.ones((1, 5, 5, 1, 1, 1)) * 0.5  # doesnt matter, not used
 
-        out = model([test_caps_in, test_act_in])
-        print(out)
+        votes, acts = model([fake_input_tensor, test_act_in])
+
+        print(votes[0][0, 0], votes[0][0, 1])
 
     def test_custom_train(self):
         gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -438,11 +457,170 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         model_test.model.summary() 
  
         history = model_test.custom_train(dataset=dataset, initial_epoch=0)
+
+    def test_simple_cnn(self):
+        input_shape = [48,48,2]
+        inputs = tf.keras.Input(input_shape)
+        x = tf.keras.layers.Conv2D(32, 5, strides=1, activation="relu", padding='valid')(inputs)
+        x = tf.keras.layers.MaxPool2D()(x)
+        x = tf.keras.layers.Conv2D(64, 5, strides=1, activation="relu", padding='valid')(x)
+        x = tf.keras.layers.MaxPool2D()(x)
+        x = tf.keras.layers.Flatten()(x)
+        x = tf.keras.layers.Dense(1024, activation='relu')(x)
+        x = tf.keras.layers.Dropout(0.5)(x)
+        x = tf.keras.layers.Dense(5, activation='softmax')(x)
+        model = tf.keras.Model(inputs=inputs,outputs=x, name='baseline_CNN')
+
+        dataset = Dataset('SMALLNORB', config_path='config.json')
+        train_ds, _ = dataset.get_tf_data()
+
+        for images, labels in train_ds.take(1):
+            print("Image shape:", images.shape)
+            print("Label shape:", labels.shape)
+            print("First label:", labels[0])
+
+        images, labels = next(iter(train_ds))
+        print("Image batch shape:", images.shape)
+        print("Label batch shape:", labels.shape)
+        print("First label:", labels[0])
+
+        print("First image min/max:", tf.reduce_min(images[0]).numpy(), tf.reduce_max(images[0]).numpy())
+
+
+        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+                      loss=tf.keras.losses.CategoricalCrossentropy(),
+                      metrics=['accuracy'])
+
+        model.fit(train_ds, epochs=150)
         
+    def test_simple_em_caps(self):
+        """The fit() is simple, the model is the same. We also use only a small 
+        amount of batches to test if we can overfit"""
+        # Create position grid
+        tf.random.set_seed(1004)
+        input_shape = [48, 48, 2]
+        height, width = input_shape[0], input_shape[1]
+        x = np.linspace(-1, 1, height)
+        y = np.linspace(-1, 1, width)
+
+        position_grid = np.meshgrid(x, y)
+
+
+        inputs = tf.keras.Input(input_shape)
+        relu_conv1 = ReLUConv(A=64)(inputs)
+        position_grid = position_grid_conv(position_grid, 5, 2, 'VALID') 
+        prim_caps1 = PrimaryCaps(B=8)(relu_conv1)
+        position_grid = position_grid_conv(position_grid, 1, 1, 'SAME')
+        conv_caps1 = ConvCaps(C=16, stride=2)(prim_caps1)
+        position_grid = position_grid_conv(position_grid, 3, 2, 'VALID')
+        routing1 = EMRouting()(conv_caps1) 
+    
+        conv_caps2 = ConvCaps(C=16)(routing1)
+        position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
+        routing2 = EMRouting()(conv_caps2) 
+        
+        class_caps = ConvCaps(C=5, kernel_size=8)(routing2)
+        # class_caps = ClassCaps(position_grid)(routing2)
+        outputs = EMRouting()(class_caps) 
+
+        outputs = Squeeze()(outputs)
+
+        poses, acts = outputs
+
+        # acts = tf.keras.layers.Softmax(name='softmax_output')(acts)
+
+
+        # poses, acts = prim_caps1
+        # reshapep = tf.keras.layers.Reshape((22, 22, 8, 16))(poses)
+        # reshapea = tf.keras.layers.Reshape((22, 22, 8, 1))(acts)
+        # concat = tf.keras.layers.concatenate((reshapep, reshapea))
+        # flat = tf.keras.layers.Flatten()(relu_conv1)
+
+
+        # acts = tf.keras.layers.Dense(5, activation='relu')(flat)
+        # acts = tf.keras.layers.Softmax()(acts)
+
+        model = tf.keras.Model(inputs=inputs,outputs=acts, name='small_EM_CapsNet')
+
+        for var in model.trainable_variables:
+            print(var.name, var.shape, var.trainable)
+
+        use_real_data = False
+        if use_real_data:
+            dataset = Dataset('SMALLNORB', config_path='config.json')
+            train_ds, _ = dataset.get_tf_data()
+
+            train_ds = train_ds.take(1)
+        else:
+            # Create fake data: shape (1, 48, 48, 2)
+            fake_image = tf.random.normal(shape=(1, 48, 48, 2))
+
+            # Create fake one-hot label: shape (1, 5)
+            fake_label = tf.one_hot(indices=[0], depth=5)  # You can replace 0 with any int 0–4
+
+            # Create a tf.data.Dataset from the fake data
+            train_ds = tf.data.Dataset.from_tensor_slices((fake_image, fake_label)).batch(1)
+
+        for images, labels in train_ds.take(1):
+            print("Image shape:", images.shape)
+            print("Label shape:", labels.shape)
+            print("First label:", labels[0])
+
+            pred = model(images, training=False)
+            print("Prediction:", pred.numpy())
+            print("Sum over classes:", tf.reduce_sum(pred).numpy())
+            print("Label:", labels.numpy())
+
+        images, labels = next(iter(train_ds))
+        print("Image batch shape:", images.shape)
+        print("Label batch shape:", labels.shape)
+        print("First label:", labels[0])  # 0.40460
+
+        print("First image min/max:", tf.reduce_min(images[0]).numpy(), tf.reduce_max(images[0]).numpy())
+
+
+        # model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+        #               loss=tf.keras.losses.CategoricalCrossentropy(),
+        #               metrics=['accuracy'])
+
+        # model.fit(train_ds, epochs=150)
+        loss_fn = tf.keras.losses.CategoricalCrossentropy()
+        optimizer = tf.keras.optimizers.Adam(learning_rate=5.0)  # crazy high LR for debugging
+
+        for epoch in range(100):
+            for images, labels in train_ds.take(1):  # just one batch
+                with tf.GradientTape() as tape:
+                    preds = model(images, training=True)
+                    loss = loss_fn(labels, preds)
+                    print(f"The loss is {loss}")
+
+                grads = tape.gradient(loss, model.trainable_variables)
+                optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+                print(f"Epoch {epoch+1}, Loss: {loss.numpy():.4f}, Pred: {preds.numpy()}, Label: {labels.numpy()}")
+
+                # Optional: check if gradients are zero or tiny for all weights
+                for v, g in zip(model.trainable_variables, grads):
+                    if g is None:
+                        print(f"Warning: Gradient is None for {v.name}")
+                    else:
+                        print(f"{v.name}: grad mean abs {tf.reduce_mean(tf.abs(g)).numpy():.6f}")
+
+
+        for images, labels in train_ds.take(1):
+            print(images)
+            print("Image shape:", images.shape)
+            print("Label shape:", labels.shape)
+            print("First label:", labels[0])
+
+            pred = model(images, training=False)
+            print("Prediction:", pred.numpy())
+            print("Sum over classes:", tf.reduce_sum(pred).numpy())
+            print("Label:", labels.numpy())
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
     # suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
-    suite.addTest(TestOriginalMatrixCapsules('test_custom_train'))
+    suite.addTest(TestOriginalMatrixCapsules('test_simple_em_caps'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 
