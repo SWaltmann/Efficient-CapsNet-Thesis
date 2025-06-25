@@ -22,9 +22,9 @@ class ReLUConv(tf.keras.layers.Layer):
             strides=self.stride,
             padding='valid',
             activation='relu',
-            # kernel_regularizer=tf.keras.regularizers.l2(.05),
+            kernel_regularizer=tf.keras.regularizers.l2(.05),
             kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=5e-2),
-            # bias_initializer=tf.keras.initializers.Constant(0.1)
+            bias_initializer=tf.keras.initializers.Constant(0.1)
         )
         self.built = True
 
@@ -54,7 +54,7 @@ class PrimaryCaps(tf.keras.layers.Layer):
             kernel_size=self.kernel_size,
             strides=self.stride,
             padding='same',
-            # kernel_regularizer=tf.keras.regularizers.l2(.0000002),
+            kernel_regularizer=tf.keras.regularizers.l2(.0000002),
             use_bias=False
         )
         # # Manually construct the kernel out of two tensors with different 

@@ -795,14 +795,14 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
 
         model = tf.keras.Model(inputs=inputs,outputs=acts, name='small_EM_CapsNet')
 
-        loss_fn = tf.keras.losses.CategoricalCrossentropy()
+        loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
 
         lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=3e-3,
+            initial_learning_rate=0.001,
             decay_steps=2000,
             decay_rate=0.96
         )
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, weight_decay=False) 
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, weight_decay=True) 
         test_callback = TestEvalCallback(ds_test)
         model.compile(loss=loss_fn, optimizer=optimizer, run_eagerly=False, metrics=['categorical_accuracy'])
         history = model.fit(ds_train, validation_data=ds_val, epochs=100, callbacks=[test_callback])
