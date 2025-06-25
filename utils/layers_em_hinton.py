@@ -349,12 +349,15 @@ class EMRouting(tf.keras.layers.Layer):
     them. This layer takes the activations and poses and finds the new 
     activations.
     """
-    def __init__(self, iterations=2, min_var=0.0005, final_beta=0.01, **kwargs):
+    def __init__(self, mean_data=1, iterations=2, min_var=0.0005, final_beta=0.01, **kwargs):
         super(EMRouting, self).__init__(**kwargs)
         self.iterations = iterations
         self.min_var = min_var
         self.final_lambda = final_beta
         self.verbose = False
+        self.epsilon = 1e-7
+        # From Gritzman. Has to be manually calcualted for now
+        self.mean_data = mean_data  # if 1, this does nothing
 
 
     def build(self, input_shape):
@@ -378,6 +381,7 @@ class EMRouting(tf.keras.layers.Layer):
 
         self.pose_shape_in = input_shape[0]
         ps = self.pose_shape_in
+        b, h, w, i, o, a= ps[0], ps[1], ps[2], ps[5], ps[6], ps[7]
         self.act_shape_in = input_shape[1]
 
 
@@ -437,9 +441,11 @@ class EMRouting(tf.keras.layers.Layer):
         # the conv_caps layer before this
         self.out_poses = tf.squeeze(self.out_poses, axis=[3,4,5])
         self.out_activations = tf.squeeze(self.out_activations, axis=[3,4,5])
-    
-        return self.out_poses, self.out_activations
 
+        poses = tf.debugging.check_numerics(self.out_poses, message="votes after Routing is messed up")
+        acts = tf.debugging.check_numerics(self.out_activations, message="acts after Routing is messed up")
+    
+        return poses, acts
 
 
     def m_step(self, a_i, V_ij, i):
@@ -522,7 +528,7 @@ class EMRouting(tf.keras.layers.Layer):
 
         # Completely lost how Hinton's code relates to their paper at this point
         # Good luck figuring that out    
-        cost_h = (self.beta_u - tf.math.log(sigma_jh_sq + 1e-9)) * sum_R_ij
+        cost_h = (self.beta_u - tf.math.log(sigma_jh_sq + self.epsilon)) * sum_R_ij / self.mean_data
         if self.verbose:
             print("cost_h is:")
             print(cost_h)

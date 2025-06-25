@@ -18,6 +18,59 @@ from utils.layers_em_hinton import PrimaryCaps, ConvCaps, EMRouting, ReLUConv, C
 from models import original_em_capsnet_graph_smallnorb
 from models.original_em_capsnet_graph_smallnorb import position_grid_conv
 
+
+class TestEvalCallback(tf.keras.callbacks.Callback):
+    """This callback evaluates the model at every epoch"""
+
+    def __init__(self, test_data, output_path="test_history.json"):
+        super().__init__()
+        self.test_data = test_data
+        self.output_path = output_path
+        self.test_history = {
+            'epoch': [],
+            'accuracy': [],
+            'loss': []
+        }
+
+    def on_epoch_end(self, epoch, logs=None):
+        loss, acc = self.model.evaluate(self.test_data, verbose=0)
+        self.test_history['epoch'].append(epoch + 1)
+        self.test_history['accuracy'].append(acc)
+        self.test_history['loss'].append(loss)
+        print(f"\nEpoch {epoch + 1}: Test acc = {acc:.4f}, loss = {loss:.4f}")
+
+    def on_train_end(self, logs=None):
+        os.makedirs(os.path.dirname(self.output_path) or ".", exist_ok=True)
+        with open(self.output_path, 'w') as f:
+            json.dump(self.test_history, f, indent=2)
+        print(f"\n✅ Test history saved to: {self.output_path}")
+
+
+class TestEvalCallback(tf.keras.callbacks.Callback):
+    """This callback evaluates the model at every epoch"""
+
+    def __init__(self, test_data, output_path="test_history.json"):
+        super().__init__()
+        self.test_data = test_data
+        self.output_path = output_path
+        self.test_history = {
+            'epoch': [],
+            'accuracy': [],
+            'loss': []
+        }
+
+    def on_epoch_end(self, epoch, logs=None):
+        loss, acc = self.model.evaluate(self.test_data, verbose=0)
+        self.test_history['epoch'].append(epoch + 1)
+        self.test_history['accuracy'].append(acc)
+        self.test_history['loss'].append(loss)
+        print(f"\nEpoch {epoch + 1}: Test acc = {acc:.4f}, loss = {loss:.4f}")
+
+    def on_train_end(self, logs=None):
+        os.makedirs(os.path.dirname(self.output_path) or ".", exist_ok=True)
+        with open(self.output_path, 'w') as f:
+            json.dump(self.test_history, f, indent=2)
+        print(f"\n✅ Test history saved to: {self.output_path}")
 class TestSmallNorbPreProcessing(unittest.TestCase):
 
     @classmethod
@@ -545,7 +598,7 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         for var in model.trainable_variables:
             print(var.name, var.shape, var.trainable)
 
-        use_real_data = False
+        use_real_data = True
         if use_real_data:
             dataset = Dataset('SMALLNORB', config_path='config.json')
             train_ds, _ = dataset.get_tf_data()
@@ -590,7 +643,7 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         for epoch in range(100):
             for images, labels in train_ds.take(1):  # just one batch
                 with tf.GradientTape() as tape:
-                    preds = model(images, training=True)
+                    preds = model(images/10, training=True)
                     loss = loss_fn(labels, preds)
                     print(f"The loss is {loss}")
 
@@ -618,9 +671,155 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
             print("Sum over classes:", tf.reduce_sum(pred).numpy())
             print("Label:", labels.numpy())
 
+    def test_manual_dataset(self):
+        """The Dataset object apears to be bugged: its samples are 48x48, 
+        but are supposed to be 32x32. We manuall craft the dataset here to
+        see if that improves model performance"""
+        # Load the dataset
+        (ds_train, ds_test), ds_info = tfds.load(
+                'smallnorb',
+                split=['train', 'test'],
+                shuffle_files=True,
+                as_supervised=False,
+                with_info=True)
+        
+        b_size = 64
+        # These hard coded numbers will bite me in the ass if I do not improve
+        # (because if I use smaller dataset then the number of samples is wrong)
+        ds_val = ds_train.take(2500)
+        ds_train = ds_train.skip(2500)
+        
+        def preprocess_training_data(sample):
+            # First we downsample to 48x48 image:
+            im1 = sample['image']
+            im2 = sample['image2']
+            
+            # Concatenate both images for the model
+            images = tf.concat((im1, im2), -1, name="combine_images")
+
+            # Downsample to 48x48
+            images = tf.image.resize(images, [48, 48])
+
+            # Normalize image to have zero mean and unit variance
+            images = tf.image.per_image_standardization(images)
+
+            # Images are 48x48, we want 32x32 patch
+            # We sample the upper left corner of our patch in 0-16
+            size = 32  # Size of the patch
+            # specify dtype because we need ints for slicing
+            corner = tf.random.uniform(shape=(2,), minval=0, maxval=48-size, dtype=tf.int32)
+            x, y = corner[0], corner[1]
+            images = images[y:y+size, x:x+size, :]
+
+            # Add random brightness (0.2 is not much)
+            images = tf.image.random_brightness(images, 0.2)
+
+            images = tf.image.random_contrast(images, 0.0, 0.5)
+
+            y = tf.one_hot(sample['label_category'], 5)
+            
+            return images, y
+        
+        def preprocess_test_data(sample):
+            # First we downsample to 48x48 image:
+            im1 = sample['image']
+            im2 = sample['image2']
+            
+            # Concatenate both images for the model
+            images = tf.concat((im1, im2), -1, name="combine_images")
+
+            # Downsample to 48x48
+            images = tf.image.resize(images, [48, 48])
+
+            # Normalize image to have zero mean and unit variance
+            images = tf.image.per_image_standardization(images)
+
+            # Images are 48x48, we want 32x32 patch
+            # We sample the center (indices 8-40)
+            images = images[8:40, 8:40, :]
+
+            y = tf.one_hot(sample['label_category'], 5)
+            
+            return images, y
+
+
+        
+        ds_train = ds_train.map(preprocess_training_data).batch(b_size)
+        ds_test = ds_test.map(preprocess_test_data).batch(b_size)
+        # Taken from training, but pre-processed like test data
+        # So that it is more similar to the test data (hopefully)
+        ds_val = ds_val.map(preprocess_test_data).batch(b_size)
+
+        # DATASET is now as described by hinton. Let's see if we can train it:
+
+        input_shape = [32, 32, 2]
+        height, width = input_shape[0], input_shape[1]
+        x = np.linspace(-1, 1, height)
+        y = np.linspace(-1, 1, width)
+
+        position_grid = np.meshgrid(x, y)
+
+        inputs = tf.keras.Input(input_shape)
+        relu_conv1 = ReLUConv(A=64)(inputs)
+        position_grid = position_grid_conv(position_grid, 5, 2, 'VALID') 
+        prim_caps1 = PrimaryCaps(B=8)(relu_conv1)
+        position_grid = position_grid_conv(position_grid, 1, 1, 'SAME')
+        conv_caps1 = ConvCaps(C=16, stride=2)(prim_caps1)
+        position_grid = position_grid_conv(position_grid, 3, 2, 'VALID')
+        routing1 = EMRouting()(conv_caps1) 
+    
+        conv_caps2 = ConvCaps(C=16)(routing1)
+        position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
+        routing2 = EMRouting()(conv_caps2) 
+        
+        # class_caps = ConvCaps(C=5, kernel_size=4)(routing2)
+        class_caps = ClassCaps(position_grid)(routing2)
+        outputs = EMRouting()(class_caps) 
+
+        outputs = Squeeze()(outputs)
+
+        poses, acts = outputs
+
+        # acts = tf.keras.layers.Softmax(name='softmax_output')(acts)
+
+
+        # poses, acts = prim_caps1
+        # reshapep = tf.keras.layers.Reshape((22, 22, 8, 16))(poses)
+        # reshapea = tf.keras.layers.Reshape((22, 22, 8, 1))(acts)
+        # concat = tf.keras.layers.concatenate((reshapep, reshapea))
+        # flat = tf.keras.layers.Flatten()(relu_conv1)
+
+
+        # acts = tf.keras.layers.Dense(5, activation='relu')(flat)
+        # acts = tf.keras.layers.Softmax()(acts)
+
+        model = tf.keras.Model(inputs=inputs,outputs=acts, name='small_EM_CapsNet')
+
+        loss_fn = tf.keras.losses.CategoricalCrossentropy()
+
+        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=3e-3,
+            decay_steps=2000,
+            decay_rate=0.96
+        )
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, weight_decay=False) 
+        test_callback = TestEvalCallback(ds_test)
+        model.compile(loss=loss_fn, optimizer=optimizer, run_eagerly=False, metrics=['categorical_accuracy'])
+        history = model.fit(ds_train, validation_data=ds_val, epochs=100, callbacks=[test_callback])
+        with open("training_history.json", "w") as f:
+            json.dump(history.history, f)
+
+        for x, y in ds_train:
+            print(f"LABEL = {y}")
+            pred = model.predict(x)
+            print(f"PRED  = {pred}")
+            break
+    
+
+
 if __name__ == '__main__':
     suite = unittest.TestSuite()
     # suite.addTest(TestOriginalMatrixCapsules('test_primary_capsule_layer'))
-    suite.addTest(TestOriginalMatrixCapsules('test_simple_em_caps'))
+    suite.addTest(TestOriginalMatrixCapsules('test_manual_dataset'))
     unittest.TextTestRunner(verbosity=2).run(suite)
 
