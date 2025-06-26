@@ -591,7 +591,7 @@ class EMRouting(tf.keras.layers.Layer):
 
         # Compute the log probability (log p_j)
         log_p_j = -tf.reduce_sum(
-            tf.math.log(2 * math.pi * self.sigma_jh_sq) +
+            tf.math.log(2 * math.pi * self.sigma_jh_sq + 1e-7) +
             tf.pow((V_ij - mu_jh), 2) / (2* self.sigma_jh_sq),
             axis=[-1, -2],
             keepdims=True
@@ -601,7 +601,7 @@ class EMRouting(tf.keras.layers.Layer):
             print(tf.exp(log_p_j))
 
         # Add log activations
-        log_a_j = tf.math.log(a_j + 1e-9)
+        log_a_j = tf.math.log(a_j + 1e-7)
         log_a_j = tf.broadcast_to(log_a_j, tf.shape(log_p_j))
 
         # Compute log numerator
