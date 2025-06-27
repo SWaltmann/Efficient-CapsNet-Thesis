@@ -766,15 +766,15 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         position_grid = position_grid_conv(position_grid, 1, 1, 'SAME')
         conv_caps1 = ConvCaps(C=16, stride=2)(prim_caps1)
         position_grid = position_grid_conv(position_grid, 3, 2, 'VALID')
-        routing1 = EMRouting(mean_data=2.722)(conv_caps1) 
+        routing1 = EMRouting()(conv_caps1)  # mean_data=2.722
     
         conv_caps2 = ConvCaps(C=16)(routing1)
         position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
-        routing2 = EMRouting(mean_data=2.25)(conv_caps2) 
+        routing2 = EMRouting()(conv_caps2)  # mean_data=2.25
         
         # class_caps = ConvCaps(C=5, kernel_size=4)(routing2)
         class_caps = ClassCaps(position_grid)(routing2)
-        outputs = EMRouting(mean_data=51.2)(class_caps) 
+        outputs = EMRouting()(class_caps)  # mean_data=51.2
 
         outputs = Squeeze()(outputs)
 
@@ -796,21 +796,21 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         model = tf.keras.Model(inputs=inputs,outputs=acts, name='small_EM_CapsNet')
 
         # loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
-        loss_fn = tf.keras.losses.categorical_hinge
+        loss_fn = tf.keras.losses.CategoricalCrossentropy()
 
 
         lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=0.0005,
-            decay_steps=2000,
+            initial_learning_rate=3e-3,
+            decay_steps=20000,
             decay_rate=0.96
         )
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, weight_decay=True) 
+        optimizer = tf.keras.optimizers.AdamW(learning_rate=lr_schedule) 
         test_callback = TestEvalCallback(ds_test)
         model.compile(loss=loss_fn, optimizer=optimizer, run_eagerly=False, metrics=['categorical_accuracy'])
-        history = model.fit(ds_train, validation_data=ds_val, epochs=100, callbacks=[test_callback])
+        history = model.fit(ds_train, validation_data=ds_val, epochs=200, callbacks=[test_callback])
         with open("training_history.json", "w") as f:
             json.dump(history.history, f)
-
+        # Using epsilon = 1e-7 is steady but slow, trying to anneal now. Good night! Or good morning when you read this I guess:)
         for x, y in ds_train:
             print(f"LABEL = {y}")
             pred = model.predict(x)

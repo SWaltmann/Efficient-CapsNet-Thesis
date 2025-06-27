@@ -349,7 +349,7 @@ class EMRouting(tf.keras.layers.Layer):
     them. This layer takes the activations and poses and finds the new 
     activations.
     """
-    def __init__(self, mean_data=1, iterations=2, min_var=0.0005, final_beta=0.01, **kwargs):
+    def __init__(self, mean_data=1, iterations=2, min_var=0.0005, final_beta=0.01, epsilon_annealing=False, **kwargs):
         super(EMRouting, self).__init__(**kwargs)
         self.iterations = iterations
         self.min_var = min_var
@@ -359,6 +359,24 @@ class EMRouting(tf.keras.layers.Layer):
         # From Gritzman. Has to be manually calcualted for now
         self.mean_data = mean_data  # if 1, this does nothing
 
+        # Slowly decrease epsilon, to make model learn faster and be more stable
+        self.epsilon_annealing = epsilon_annealing
+        if epsilon_annealing:
+            self.call_count = self.add_weight(
+                name="call_count",
+                initializer="zeros",
+                dtype=tf.int64,
+                trainable=False
+            )  
+            self.decay_steps = 50000
+            self.epsilon_start = 1e-7
+            self.epsilon_end = 1e-14
+
+    def compute_epsilon(self):
+        step = tf.cast(self.call_count, tf.float32)
+        decay_ratio = tf.minimum(1.0, step / self.decay_steps)
+        epsilon = self.epsilon_start * (1 - decay_ratio) + self.epsilon_end * decay_ratio
+        return epsilon
 
     def build(self, input_shape):
         # Pose input:
@@ -404,6 +422,15 @@ class EMRouting(tf.keras.layers.Layer):
 
         
     def call(self, inputs):
+
+        if self.epsilon_annealing:
+            epsilon = self.compute_epsilon()
+            # Update the call counter
+            # This probably also updates during validation and testing...
+            # Not sure how to fix that. Oh well :)
+            self.call_count.assign_add(1)
+        else:
+            epsilon = self.epsilon
         
         votes, activations = inputs
         votes = tf.debugging.check_numerics(votes, message="VOTES ARE FUCKEDD")
@@ -424,14 +451,14 @@ class EMRouting(tf.keras.layers.Layer):
         for i in range(self.iterations - 1):
             if self.verbose:
                 print(f"STARTING ITERATION {i+1}")
-            self.m_step(activations, votes, i)
-            self.e_step_log(votes)
+            self.m_step(activations, votes, i, epsilon)
+            self.e_step_log(votes, epsilon)
             if self.verbose:
                 print("\n\n")
         # Last routing iteration only requires the m-step
         if self.verbose:
             print(f"FINAL ITERATION ({i+2})")
-        self.m_step(activations, votes, self.iterations)
+        self.m_step(activations, votes, self.iterations, epsilon)
         if self.verbose:
             print("-"*60)
             print("\n\n")
@@ -448,7 +475,7 @@ class EMRouting(tf.keras.layers.Layer):
         return poses, acts
 
 
-    def m_step(self, a_i, V_ij, i):
+    def m_step(self, a_i, V_ij, i, epsilon):
         # Hinton names the variables differently in his code than 
         # in the paper. We stick to the paper, but this is the translation:
         #   my var - Hinton's var
@@ -505,14 +532,14 @@ class EMRouting(tf.keras.layers.Layer):
         # combines this with the old value to get 'center'. But we skip
         # that step since it is not mentioned in the paper.
         mu_jh = (tf.reduce_sum(R_ij * V_ij, axis=[3,4,5], keepdims=True) 
-                / (sum_R_ij + 1e-7))  # e-7 from Hinton's implementation
+                / (sum_R_ij + epsilon))  # e-7 from Hinton's implementation
                 # e-7 prevents numerical instability (Gritzman, 2019)
         if self.verbose:
             print("mu_jh is:")
             print(mu_jh)
         # variance in Hinton's implementation
         sigma_jh_sq = (tf.reduce_sum(R_ij * tf.pow((V_ij - mu_jh), 2), axis=[3,4,5], keepdims=True)
-                       / (sum_R_ij + 1e-7))
+                       / (sum_R_ij + epsilon))
         # Make sure the variance is never 0, or super large
         # sigma_jh_sq_clipmax = tf.minimum(sigma_jh_sq, 1e9)
         # tf.print("Clipped ratio (was too large):", tf.reduce_mean(tf.cast(sigma_jh_sq != sigma_jh_sq_clipmax, tf.float32)))
@@ -528,7 +555,8 @@ class EMRouting(tf.keras.layers.Layer):
 
         # Completely lost how Hinton's code relates to their paper at this point
         # Good luck figuring that out    
-        cost_h = (self.beta_u - tf.math.log(sigma_jh_sq + self.epsilon)) * sum_R_ij / self.mean_data
+        cost_h = (self.beta_u - tf.math.log(sigma_jh_sq + epsilon)) * sum_R_ij / self.mean_data
+        # tf.print(cost_h)
         if self.verbose:
             print("cost_h is:")
             print(cost_h)
@@ -584,14 +612,14 @@ class EMRouting(tf.keras.layers.Layer):
         self.R_ij = a_j * p_j / tf.reduce_sum(a_j * p_j, axis=[3,4,6], keepdims=True)
         
 
-    def e_step_log(self, V_ij):
+    def e_step_log(self, V_ij, epsilon):
         """Compute the e-step in log space to prevent NaN from small (<e-2) inputs"""
         mu_jh = self.out_poses
         a_j = self.out_activations
 
         # Compute the log probability (log p_j)
         log_p_j = -tf.reduce_sum(
-            tf.math.log(2 * math.pi * self.sigma_jh_sq + 1e-7) +
+            tf.math.log(2 * math.pi * self.sigma_jh_sq + epsilon) +
             tf.pow((V_ij - mu_jh), 2) / (2* self.sigma_jh_sq),
             axis=[-1, -2],
             keepdims=True
@@ -601,7 +629,7 @@ class EMRouting(tf.keras.layers.Layer):
             print(tf.exp(log_p_j))
 
         # Add log activations
-        log_a_j = tf.math.log(a_j + 1e-7)
+        log_a_j = tf.math.log(a_j + epsilon)
         log_a_j = tf.broadcast_to(log_a_j, tf.shape(log_p_j))
 
         # Compute log numerator
