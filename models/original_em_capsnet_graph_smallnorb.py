@@ -69,31 +69,32 @@ def small_em_capsnet_graph(input_shape, mode, debug=True):
     y_true = tf.keras.layers.Input(shape=(5,))
 
     relu_conv1 = ReLUConv(A=64)(inputs)
-    relu_conv1 = DebugLayer("relu_conv")(relu_conv1)
+    # relu_conv1 = DebugLayer("relu_conv")(relu_conv1)
     position_grid = position_grid_conv(position_grid, 5, 2, 'VALID') 
 
     prim_caps1 = PrimaryCaps(B=8)(relu_conv1)
-    prim_caps1 = DebugLayer("primcaps")(prim_caps1)
+    # prim_caps1 = DebugLayer("primcaps")(prim_caps1)
     position_grid = position_grid_conv(position_grid, 1, 1, 'SAME')
 
     conv_caps1 = ConvCaps(C=16, stride=2)(prim_caps1)
-    conv_caps1 = DebugLayer("convcaps1")(conv_caps1)
+    # conv_caps1 = DebugLayer("convcaps1")(conv_caps1)
     position_grid = position_grid_conv(position_grid, 3, 2, 'VALID')
-    routing1 = EMRouting()(conv_caps1) 
-    routing1 = DebugLayer("routing1")(routing1) 
+    routing1 = EMRouting(name='routing1')(conv_caps1) 
+    # routing1 = DebugLayer("routing1")(routing1) 
   
     conv_caps2 = ConvCaps(C=16)(routing1)
-    conv_caps2 = DebugLayer("convcaps2")(conv_caps2)
+    # conv_caps2 = DebugLayer("convcaps2")(conv_caps2)
     position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
     routing2 = EMRouting()(conv_caps2) 
-    routing2 = DebugLayer("routing2")(routing2) 
+    # routing2 = DebugLayer("routing2")(routing2) 
 
 
-    class_caps = ClassCaps(position_grid)(routing2)
-    class_caps = DebugLayer("classcaps")(class_caps)
+    # class_caps = ClassCaps(position_grid)(routing2)
+    class_caps = ConvCaps(C=5, kernel_size=8)(routing2)
+    # class_caps = DebugLayer("classcaps")(class_caps)
 
     outputs = EMRouting()(class_caps) 
-    outputs = DebugLayer("routing_classcaps")(outputs)
+    # outputs = DebugLayer("routing_classcaps")(outputs)
 
     outputs = Squeeze()(outputs)
 
@@ -127,10 +128,14 @@ def position_grid_conv(grid, kernel_size, stride, padding):
     # To get the value at a position do:
     # x, y = grid[0][coordx, coordy], grid[1][coordx, coordy]
     # not super intuitive but oh well
+
+    # We work with numpy, but output must be a list so that is serializable
     
     # Note that there is a stereo image input. We track just one since they
     # are treated exactly the same
     xv, yv = grid
+    xv = np.array(xv)
+    yv = np.array(yv)
 
     # Since everything is using tf, check that this is a np array
     assert(isinstance(xv, np.ndarray))
@@ -150,7 +155,7 @@ def position_grid_conv(grid, kernel_size, stride, padding):
         Exception("You passed an invalid padding value. Use 'SAME' or 'VALID'")
    
     # TODO: might be nice to track the size of the receptive field for later
-    return (xv, yv)
+    return (xv.tolist(), yv.tolist())
 
 if __name__ == '__main__':
     x = np.arange(-16, 16)

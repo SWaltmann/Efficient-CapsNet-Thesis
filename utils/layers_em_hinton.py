@@ -241,6 +241,12 @@ class ClassCaps(tf.keras.layers.Layer):
         self.position_grid = position_grid
         self.out_atoms = out_atoms
         self.caps_out = capsules_out
+        # Build grid from position_grid (numpy)
+        xv, yv = self.position_grid  # Each: [H, W]
+        grid = np.stack([xv, yv], axis=-1)  # [H, W, 2]
+        self.grid = tf.convert_to_tensor(grid, dtype=tf.float32)
+
+        
 
     def build(self, input_shape):  
         # input shape = (N, H, W, capsules_in, sqrt_atom, sqrt_atom)
@@ -250,6 +256,7 @@ class ClassCaps(tf.keras.layers.Layer):
         self.act_shape_in = input_shape[1]
         self.caps_in = self.pose_shape_in[3]
 
+        
 
         self.weight = self.add_weight(shape=(self.caps_in, self.caps_out, self.in_sqrt_atoms, self.in_sqrt_atoms),
                                        initializer=tf.keras.initializers.TruncatedNormal(stddev=0.01),
@@ -298,10 +305,7 @@ class ClassCaps(tf.keras.layers.Layer):
         batch_size, H, W = tf.shape(poses)[0], tf.shape(poses)[1], tf.shape(poses)[2]
         sqrt_atom = tf.shape(poses)[-1]
 
-        # Build grid from position_grid (numpy)
-        xv, yv = self.position_grid  # Each: [H, W]
-        grid = np.stack([xv, yv], axis=-1)  # [H, W, 2]
-        grid = tf.convert_to_tensor(grid, dtype=poses.dtype)
+        grid = self.grid
 
         # Create zero matrices: [H, W, sqrt_atom, sqrt_atom]
         zeros = tf.zeros((H, W, sqrt_atom, sqrt_atom), dtype=poses.dtype)
@@ -555,7 +559,7 @@ class EMRouting(tf.keras.layers.Layer):
 
         # Completely lost how Hinton's code relates to their paper at this point
         # Good luck figuring that out    
-        cost_h = (self.beta_u - tf.math.log(sigma_jh_sq + epsilon)) * sum_R_ij / self.mean_data
+        cost_h = (self.beta_u - 0.5 * tf.math.log(sigma_jh_sq + epsilon)) * sum_R_ij / self.mean_data
         # tf.print(cost_h)
         if self.verbose:
             print("cost_h is:")

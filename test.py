@@ -771,7 +771,7 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         conv_caps2 = ConvCaps(C=16)(routing1)
         position_grid = position_grid_conv(position_grid, 3, 1, 'VALID')
         routing2 = EMRouting()(conv_caps2)  # mean_data=2.25
-        
+
         # class_caps = ConvCaps(C=5, kernel_size=4)(routing2)
         class_caps = ClassCaps(position_grid)(routing2)
         outputs = EMRouting()(class_caps)  # mean_data=51.2
@@ -807,7 +807,7 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
         optimizer = tf.keras.optimizers.AdamW(learning_rate=lr_schedule) 
         test_callback = TestEvalCallback(ds_test)
         model.compile(loss=loss_fn, optimizer=optimizer, run_eagerly=False, metrics=['categorical_accuracy'])
-        history = model.fit(ds_train, validation_data=ds_val, epochs=200, callbacks=[test_callback])
+        history = model.fit(ds_train, validation_data=ds_val, epochs=5, callbacks=[test_callback])
         with open("training_history.json", "w") as f:
             json.dump(history.history, f)
         # Using epsilon = 1e-7 is steady but slow, trying to anneal now. Good night! Or good morning when you read this I guess:)
@@ -817,6 +817,90 @@ class TestOriginalMatrixCapsules(unittest.TestCase):
             print(f"PRED  = {pred}")
             break
     
+        model.save('modelv_testsave.keras')
+    
+    def test_loading_model(self):
+        model = tf.keras.models.load_model('modelv_testsave.keras')
+
+        (ds_train, ds_test), ds_info = tfds.load(
+                'smallnorb',
+                split=['train', 'test'],
+                shuffle_files=True,
+                as_supervised=False,
+                with_info=True)
+        
+        b_size = 64
+        # These hard coded numbers will bite me in the ass if I do not improve
+        # (because if I use smaller dataset then the number of samples is wrong)
+        ds_val = ds_train.take(2500)
+        ds_train = ds_train.skip(2500)
+        
+        def preprocess_training_data(sample):
+            # First we downsample to 48x48 image:
+            im1 = sample['image']
+            im2 = sample['image2']
+            
+            # Concatenate both images for the model
+            images = tf.concat((im1, im2), -1, name="combine_images")
+
+            # Downsample to 48x48
+            images = tf.image.resize(images, [48, 48])
+
+            # Normalize image to have zero mean and unit variance
+            images = tf.image.per_image_standardization(images)
+
+            # Images are 48x48, we want 32x32 patch
+            # We sample the upper left corner of our patch in 0-16
+            size = 32  # Size of the patch
+            # specify dtype because we need ints for slicing
+            corner = tf.random.uniform(shape=(2,), minval=0, maxval=48-size, dtype=tf.int32)
+            x, y = corner[0], corner[1]
+            images = images[y:y+size, x:x+size, :]
+
+            # Add random brightness (0.2 is not much)
+            images = tf.image.random_brightness(images, 0.2)
+
+            images = tf.image.random_contrast(images, 0.0, 0.5)
+
+            y = tf.one_hot(sample['label_category'], 5)
+            
+            return images, y
+        
+        def preprocess_test_data(sample):
+            # First we downsample to 48x48 image:
+            im1 = sample['image']
+            im2 = sample['image2']
+            
+            # Concatenate both images for the model
+            images = tf.concat((im1, im2), -1, name="combine_images")
+
+            # Downsample to 48x48
+            images = tf.image.resize(images, [48, 48])
+
+            # Normalize image to have zero mean and unit variance
+            images = tf.image.per_image_standardization(images)
+
+            # Images are 48x48, we want 32x32 patch
+            # We sample the center (indices 8-40)
+            images = images[8:40, 8:40, :]
+
+            y = tf.one_hot(sample['label_category'], 5)
+            
+            return images, y
+
+
+        
+        ds_train = ds_train.map(preprocess_training_data).batch(b_size)
+        ds_test = ds_test.map(preprocess_test_data).batch(b_size)
+        # Taken from training, but pre-processed like test data
+        # So that it is more similar to the test data (hopefully)
+        ds_val = ds_val.map(preprocess_test_data).batch(b_size)
+
+        for x, y in ds_train:
+            print(f"LABEL = {y}")
+            pred = model.predict(x)
+            print(f"PRED  = {pred}")
+            break
 
 
 if __name__ == '__main__':
